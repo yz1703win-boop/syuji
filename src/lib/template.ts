@@ -326,6 +326,17 @@ export function parseOvertimeMinutes(content: string): number {
   return h * 60 + m;
 }
 
+/** "46:55" や "46時間55分" などの入力を分数に変換 */
+export function parseOvertimeSeedInput(input: string): number {
+  const colonMatch = input.match(/^(\d+):(\d{2})$/);
+  if (colonMatch) return parseInt(colonMatch[1]) * 60 + parseInt(colonMatch[2]);
+  const japanMatch = input.match(/(\d+)時間(\d+)?分?/);
+  if (japanMatch) {
+    return parseInt(japanMatch[1]) * 60 + parseInt(japanMatch[2] ?? "0");
+  }
+  return 0;
+}
+
 export interface OvertimeEvent {
   summary: string;
   durationMinutes: number;

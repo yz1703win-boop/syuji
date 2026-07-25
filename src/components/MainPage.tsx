@@ -15,6 +15,8 @@ import {
   getTodayJST,
   getWeekStart,
   OvertimeEvent,
+  parseOvertimeMinutes,
+  parseOvertimeSeedInput,
   renderTemplate,
   toDateString,
   upsertEveningResultUrl,
@@ -81,6 +83,9 @@ export default function MainPage() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [overtimeMonthlyMinutes, setOvertimeMonthlyMinutes] = useState(0);
+  const [overtimeSeedInput, setOvertimeSeedInput] = useState("");
+  const [overtimeSeedSaving, setOvertimeSeedSaving] = useState(false);
 
   const today = getTodayJST();
   const todayStr = toDateString(today);
@@ -262,6 +267,7 @@ export default function MainPage() {
             buildOvertimeVars(overtimeEvents, currentMonthMinutes)
           );
 
+          setOvertimeMonthlyMinutes(currentMonthMinutes);
           setContents((prev) => ({ ...prev, [tab]: rendered }));
         }
       } finally {
@@ -292,6 +298,20 @@ export default function MainPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: tab, report_date: reportDate }),
     });
+
+    // overtime タブ: コピー時に残業時間を月次合計に加算
+    if (tab === "overtime") {
+      const addMinutes = parseOvertimeMinutes(contents.overtime);
+      if (addMinutes > 0) {
+        const monthStr = todayStr.slice(0, 7);
+        await fetch("/api/overtime/monthly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month: monthStr, add_minutes: addMinutes }),
+        });
+        setOvertimeMonthlyMinutes((prev) => prev + addMinutes);
+      }
+    }
 
     if (tab === "morning") {
       const goalUrl = extractGoalUrls(contents.morning);
@@ -455,6 +475,48 @@ export default function MainPage() {
                   : null
               }
             />
+            {activeTab === "overtime" && (
+              <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-amber-800">
+                  今月の残業累計を手動設定
+                  <span className="ml-2 font-normal text-amber-600">
+                    現在: {Math.floor(overtimeMonthlyMinutes / 60)}時間{overtimeMonthlyMinutes % 60 > 0 ? `${overtimeMonthlyMinutes % 60}分` : ""}
+                  </span>
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={overtimeSeedInput}
+                    onChange={(e) => setOvertimeSeedInput(e.target.value)}
+                    placeholder="例: 46:55 または 46時間55分"
+                    className="flex-1 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-amber-400"
+                  />
+                  <button
+                    disabled={overtimeSeedSaving}
+                    onClick={async () => {
+                      const mins = parseOvertimeSeedInput(overtimeSeedInput);
+                      if (mins <= 0) return;
+                      setOvertimeSeedSaving(true);
+                      const monthStr = todayStr.slice(0, 7);
+                      const res = await fetch("/api/overtime/monthly", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ month: monthStr, total_minutes: mins }),
+                      });
+                      if (res.ok) {
+                        setOvertimeMonthlyMinutes(mins);
+                        setOvertimeSeedInput("");
+                        await generateTab("overtime");
+                      }
+                      setOvertimeSeedSaving(false);
+                    }}
+                    className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                  >
+                    {overtimeSeedSaving ? "設定中..." : "設定"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
