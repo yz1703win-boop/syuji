@@ -1,4 +1,4 @@
-export type ReportType = "morning" | "evening" | "weekly";
+export type ReportType = "morning" | "evening" | "weekly" | "overtime";
 
 export interface Template {
   id: number;

@@ -9,10 +9,12 @@ import PrevWeekPanel from "@/components/PrevWeekPanel";
 import {
   buildEveningVars,
   buildMorningVars,
+  buildOvertimeVars,
   buildWeeklyVars,
   extractGoalUrls,
   getTodayJST,
   getWeekStart,
+  OvertimeEvent,
   renderTemplate,
   toDateString,
   upsertEveningResultUrl,
@@ -20,12 +22,13 @@ import {
 } from "@/lib/template";
 import { WeeklyCalendar } from "@/types";
 
-type Tab = "morning" | "evening" | "weekly";
+type Tab = "morning" | "evening" | "weekly" | "overtime";
 
 const TAB_LABELS: Record<Tab, string> = {
   morning: "始業日報",
   evening: "終業日報",
   weekly: "週次チャット",
+  overtime: "残業申請",
 };
 
 const EMPTY_CALENDAR: WeeklyCalendar = {
@@ -63,11 +66,13 @@ export default function MainPage() {
     morning: "",
     evening: "",
     weekly: "",
+    overtime: "",
   });
   const [isCopied, setIsCopied] = useState<Record<Tab, boolean>>({
     morning: false,
     evening: false,
     weekly: false,
+    overtime: false,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [templateModalTab, setTemplateModalTab] = useState<Tab | null>(null);
@@ -192,30 +197,66 @@ export default function MainPage() {
           return;
         }
 
-        setCalendarLoading(true);
-        let calendar: WeeklyCalendar = EMPTY_CALENDAR;
-        try {
-          const calRes = await fetch(
-            `/api/calendar?week_start=${weekStartStr}`
+        if (tab === "weekly") {
+          setCalendarLoading(true);
+          let calendar: WeeklyCalendar = EMPTY_CALENDAR;
+          try {
+            const calRes = await fetch(
+              `/api/calendar?week_start=${weekStartStr}`
+            );
+            if (calRes.ok) calendar = await calRes.json();
+          } catch {
+            // 取得失敗時は空で続行
+          } finally {
+            setCalendarLoading(false);
+          }
+
+          const prevRes = await fetch(
+            `/api/reports/prev-week?week_start=${weekStartStr}`
+          ).then((r) => r.json());
+          const prevContent = prevRes?.content ?? undefined;
+
+          rendered = renderTemplate(
+            template.content,
+            buildWeeklyVars(weekStart, calendar, prevContent)
           );
-          if (calRes.ok) calendar = await calRes.json();
+
+          setContents((prev) => ({ ...prev, [tab]: rendered }));
+        } else if (tab === "overtime") {
+        // 当日18時以降のイベント取得
+        let overtimeEvents: OvertimeEvent[] = [];
+        try {
+          const calRes = await fetch(`/api/calendar/day?date=${todayStr}`);
+          if (calRes.ok) {
+            const data = await calRes.json();
+            overtimeEvents = data.events ?? [];
+          }
         } catch {
           // 取得失敗時は空で続行
-        } finally {
-          setCalendarLoading(false);
         }
 
-        const prevRes = await fetch(
-          `/api/reports/prev-week?week_start=${weekStartStr}`
-        ).then((r) => r.json());
-        const prevContent = prevRes?.content ?? undefined;
+        // 今月のコピー済み残業合計
+        const monthStr = todayStr.slice(0, 7); // YYYY-MM
+        let currentMonthMinutes = 0;
+        try {
+          const monthRes = await fetch(
+            `/api/overtime/monthly?month=${monthStr}`
+          );
+          if (monthRes.ok) {
+            const data = await monthRes.json();
+            currentMonthMinutes = data.total_minutes ?? 0;
+          }
+        } catch {
+          // 取得失敗時は0で続行
+        }
 
         rendered = renderTemplate(
           template.content,
-          buildWeeklyVars(weekStart, calendar, prevContent)
+          buildOvertimeVars(overtimeEvents, currentMonthMinutes)
         );
 
         setContents((prev) => ({ ...prev, [tab]: rendered }));
+        }
       } finally {
         setLoadingTab(null);
       }
@@ -342,7 +383,7 @@ export default function MainPage() {
 
       <main className="mx-auto max-w-3xl px-4 py-6">
         <div className="mb-6 flex gap-1 rounded-xl bg-gray-200/60 p-1">
-          {(["morning", "evening", "weekly"] as Tab[]).map((tab) => (
+          {(["morning", "evening", "weekly", "overtime"] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}

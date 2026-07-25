@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 interface TemplateModalProps {
-  type: "morning" | "evening" | "weekly";
+  type: "morning" | "evening" | "weekly" | "overtime";
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -14,6 +14,7 @@ const LABEL: Record<string, string> = {
   morning: "始業日報",
   evening: "終業日報",
   weekly: "週次チャット",
+  overtime: "残業申請",
 };
 
 const PLACEHOLDERS: Record<string, string[]> = {
@@ -26,6 +27,11 @@ const PLACEHOLDERS: Record<string, string[]> = {
     "{{week_range}} — 週の期間（例: 7/20(月)～7/24(金)）",
     "{{prev_action_change}} — 前週の行動変化",
     "{{prev_week_tasks}} — 前週のタスク目標",
+  ],
+  overtime: [
+    "{{current_month_overtime}} — 今月のコピー済み残業合計（例: 56時間15分）",
+    "{{today_overtime}} — 当日18時以降の残業合計（例: 5時間）",
+    "{{overtime_tasks}} — 当日18時以降のタスク一覧（タスク名(分数)形式）",
   ],
 };
 

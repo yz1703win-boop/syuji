@@ -298,3 +298,57 @@ export function extractGoalUrls(morningContent: string): string {
   const urls = morningContent.match(/https?:\/\/[^\s\n]+/g);
   return urls ? urls.join("\n") : "";
 }
+
+// ─── 残業申請ヘルパー ────────────────────────────────────────
+
+const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "課題", "飯"];
+
+/** 残業申請に含めないイベントを除外 */
+export function shouldIncludeOvertimeEvent(eventName: string): boolean {
+  return !OVERTIME_EXCLUDE_WORDS.some((w) => eventName.includes(w));
+}
+
+/** 分数を「X時間Y分」形式に変換 */
+export function formatMinutes(minutes: number): string {
+  if (minutes === 0) return "0時間";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h}時間`;
+  return `${h}時間${m}分`;
+}
+
+/** コピー済み残業申請の content から残業分数を取得 */
+export function parseOvertimeMinutes(content: string): number {
+  const match = content.match(/残業時間⇒(\d+)時間(\d+)?分?/);
+  if (!match) return 0;
+  const h = parseInt(match[1]) || 0;
+  const m = parseInt(match[2] ?? "0") || 0;
+  return h * 60 + m;
+}
+
+export interface OvertimeEvent {
+  summary: string;
+  durationMinutes: number;
+}
+
+/** 残業申請テンプレート変数を生成 */
+export function buildOvertimeVars(
+  overtimeEvents: OvertimeEvent[],
+  currentMonthMinutes: number
+): Record<string, string> {
+  const totalMinutes = overtimeEvents.reduce(
+    (sum, e) => sum + e.durationMinutes,
+    0
+  );
+
+  const tasks =
+    overtimeEvents.length > 0
+      ? overtimeEvents.map((e) => `${e.summary}(${e.durationMinutes})`).join("\n")
+      : "なし";
+
+  return {
+    current_month_overtime: formatMinutes(currentMonthMinutes),
+    today_overtime: formatMinutes(totalMinutes),
+    overtime_tasks: tasks,
+  };
+}

@@ -58,7 +58,8 @@ export async function initDb() {
     INSERT INTO templates (type, content) VALUES
     ('morning', ${DEFAULT_MORNING_TEMPLATE}),
     ('evening', ${DEFAULT_EVENING_TEMPLATE}),
-    ('weekly', ${DEFAULT_WEEKLY_TEMPLATE})
+    ('weekly', ${DEFAULT_WEEKLY_TEMPLATE}),
+    ('overtime', ${DEFAULT_OVERTIME_TEMPLATE})
     ON CONFLICT (type) DO NOTHING
   `;
 }
@@ -69,7 +70,8 @@ export async function resetTemplates() {
     INSERT INTO templates (type, content) VALUES
     ('morning', ${DEFAULT_MORNING_TEMPLATE}),
     ('evening', ${DEFAULT_EVENING_TEMPLATE}),
-    ('weekly', ${DEFAULT_WEEKLY_TEMPLATE})
+    ('weekly', ${DEFAULT_WEEKLY_TEMPLATE}),
+    ('overtime', ${DEFAULT_OVERTIME_TEMPLATE})
     ON CONFLICT (type) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()
   `;
 }
@@ -171,3 +173,18 @@ const DEFAULT_WEEKLY_TEMPLATE = `{{header}}
 ５）目標達成のためにほしい権限
 
 [/info]`;
+
+const DEFAULT_OVERTIME_TEMPLATE = `[To:3393402]藤原直樹(ばび～)
+
+藤原さん、お疲れ様です。
+始業前のご連絡失礼します。
+
+本日の残業申請をさせていただきます。
+
+・今月の現残業時間⇒{{current_month_overtime}}
+・残業時間⇒{{today_overtime}}
+・内容⇒
+{{overtime_tasks}}
+
+お手数をおかけし恐れ入りますが、
+何卒ご確認をよろしくお願いいたします。`;
