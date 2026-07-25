@@ -33,6 +33,21 @@ const TAB_LABELS: Record<Tab, string> = {
   overtime: "残業申請",
 };
 
+const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
+
+function formatDateJP(dateStr: string): string {
+  // "2026-07-24" → "7月24日(金)"
+  const d = new Date(`${dateStr}T12:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日(${DAY_NAMES[d.getDay()]})`;
+}
+
+function formatMinutesShort(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h}時間`;
+  return `${h}時間${m}分`;
+}
+
 const EMPTY_CALENDAR: WeeklyCalendar = {
   monday: [],
   tuesday: [],
@@ -86,6 +101,10 @@ export default function MainPage() {
   const [overtimeMonthlyMinutes, setOvertimeMonthlyMinutes] = useState(0);
   const [overtimeSeedInput, setOvertimeSeedInput] = useState("");
   const [overtimeSeedSaving, setOvertimeSeedSaving] = useState(false);
+  const [overtimeLastApplied, setOvertimeLastApplied] = useState<{
+    date: string;
+    minutes: number;
+  } | null>(null);
 
   const today = getTodayJST();
   const todayStr = toDateString(today);
@@ -245,16 +264,21 @@ export default function MainPage() {
             // 取得失敗時は空で続行
           }
 
-          // 今月の残業合計（カレンダーから集計）
-          const monthStr = todayStr.slice(0, 7); // YYYY-MM
+          // 今月の残業合計 + 前回申請情報を並行取得
+          const monthStr = todayStr.slice(0, 7);
           let currentMonthMinutes = 0;
           try {
-            const monthRes = await fetch(
-              `/api/overtime/monthly?month=${monthStr}`
-            );
+            const [monthRes, lastRes] = await Promise.all([
+              fetch(`/api/overtime/monthly?month=${monthStr}`),
+              fetch(`/api/overtime/last`),
+            ]);
             if (monthRes.ok) {
               const data = await monthRes.json();
               currentMonthMinutes = data.total_minutes ?? 0;
+            }
+            if (lastRes.ok) {
+              const data = await lastRes.json();
+              setOvertimeLastApplied(data);
             }
           } catch {
             // 取得失敗時は0で続行
@@ -304,12 +328,20 @@ export default function MainPage() {
       const addMinutes = parseOvertimeMinutes(contents.overtime);
       if (addMinutes > 0) {
         const monthStr = todayStr.slice(0, 7);
-        await fetch("/api/overtime/monthly", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ month: monthStr, add_minutes: addMinutes }),
-        });
+        await Promise.all([
+          fetch("/api/overtime/monthly", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: monthStr, add_minutes: addMinutes }),
+          }),
+          fetch("/api/overtime/last", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date: todayStr, minutes: addMinutes }),
+          }),
+        ]);
         setOvertimeMonthlyMinutes((prev) => prev + addMinutes);
+        setOvertimeLastApplied({ date: todayStr, minutes: addMinutes });
       }
     }
 
@@ -455,6 +487,11 @@ export default function MainPage() {
           <div className="flex flex-col gap-4">
             {activeTab === "weekly" && (
               <PrevWeekPanel content={prevWeekContent} />
+            )}
+            {activeTab === "overtime" && overtimeLastApplied && (
+              <div className="self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 shadow-sm">
+                前日{formatDateJP(overtimeLastApplied.date)}申請の残業時間：{formatMinutesShort(overtimeLastApplied.minutes)}
+              </div>
             )}
             <ReportEditor
               value={contents[activeTab]}
