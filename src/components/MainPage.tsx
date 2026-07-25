@@ -152,13 +152,17 @@ export default function MainPage() {
       setScheduleError(null);
       try {
         const reportDate = tab === "weekly" ? weekStartStr : todayStr;
-        const saved = await fetch(
-          `/api/reports?type=${tab}&date=${reportDate}`
-        ).then((r) => r.json());
 
-        if (saved?.content) {
-          setContents((prev) => ({ ...prev, [tab]: saved.content }));
-          return;
+        // overtime タブはカレンダーから毎回最新データを生成（保存済みは使わない）
+        if (tab !== "overtime") {
+          const saved = await fetch(
+            `/api/reports?type=${tab}&date=${reportDate}`
+          ).then((r) => r.json());
+
+          if (saved?.content) {
+            setContents((prev) => ({ ...prev, [tab]: saved.content }));
+            return;
+          }
         }
 
         const template = await fetch(`/api/templates?type=${tab}`).then((r) =>
@@ -223,39 +227,42 @@ export default function MainPage() {
 
           setContents((prev) => ({ ...prev, [tab]: rendered }));
         } else if (tab === "overtime") {
-        // 当日18時以降のイベント取得
-        let overtimeEvents: OvertimeEvent[] = [];
-        try {
-          const calRes = await fetch(`/api/calendar/day?date=${todayStr}`);
-          if (calRes.ok) {
-            const data = await calRes.json();
-            overtimeEvents = data.events ?? [];
+          // 当日18時以降のイベント取得と今月合計をカレンダーから取得
+          setCalendarLoading(true);
+          let overtimeEvents: OvertimeEvent[] = [];
+          try {
+            const calRes = await fetch(`/api/calendar/day?date=${todayStr}`);
+            if (calRes.ok) {
+              const data = await calRes.json();
+              overtimeEvents = data.events ?? [];
+            }
+          } catch {
+            // 取得失敗時は空で続行
           }
-        } catch {
-          // 取得失敗時は空で続行
-        }
 
-        // 今月のコピー済み残業合計
-        const monthStr = todayStr.slice(0, 7); // YYYY-MM
-        let currentMonthMinutes = 0;
-        try {
-          const monthRes = await fetch(
-            `/api/overtime/monthly?month=${monthStr}`
+          // 今月の残業合計（カレンダーから集計）
+          const monthStr = todayStr.slice(0, 7); // YYYY-MM
+          let currentMonthMinutes = 0;
+          try {
+            const monthRes = await fetch(
+              `/api/overtime/monthly?month=${monthStr}`
+            );
+            if (monthRes.ok) {
+              const data = await monthRes.json();
+              currentMonthMinutes = data.total_minutes ?? 0;
+            }
+          } catch {
+            // 取得失敗時は0で続行
+          } finally {
+            setCalendarLoading(false);
+          }
+
+          rendered = renderTemplate(
+            template.content,
+            buildOvertimeVars(overtimeEvents, currentMonthMinutes)
           );
-          if (monthRes.ok) {
-            const data = await monthRes.json();
-            currentMonthMinutes = data.total_minutes ?? 0;
-          }
-        } catch {
-          // 取得失敗時は0で続行
-        }
 
-        rendered = renderTemplate(
-          template.content,
-          buildOvertimeVars(overtimeEvents, currentMonthMinutes)
-        );
-
-        setContents((prev) => ({ ...prev, [tab]: rendered }));
+          setContents((prev) => ({ ...prev, [tab]: rendered }));
         }
       } finally {
         setLoadingTab(null);
