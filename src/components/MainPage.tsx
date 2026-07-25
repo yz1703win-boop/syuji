@@ -10,11 +10,13 @@ import {
   buildEveningVars,
   buildMorningVars,
   buildWeeklyVars,
+  extractGoalUrls,
+  getTodayJST,
   getWeekStart,
   renderTemplate,
   toDateString,
 } from "@/lib/template";
-import { ReportType, WeeklyCalendar } from "@/types";
+import { WeeklyCalendar } from "@/types";
 
 type Tab = "morning" | "evening" | "weekly";
 
@@ -51,21 +53,20 @@ export default function MainPage() {
   const [loadingTab, setLoadingTab] = useState<Tab | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
-  const today = new Date();
+  // 毎回レンダリング時にJSTの今日を使う
+  const today = getTodayJST();
   const todayStr = toDateString(today);
   const weekStart = getWeekStart(today);
   const weekStartStr = toDateString(weekStart);
 
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // タブ切替時に内容を自動生成（ローディング中でなければ実行）
   useEffect(() => {
     if (status === "loading") return;
     generateTab(activeTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, status]);
 
-  // 前週データを週次タブ用に読み込む
   useEffect(() => {
     if (activeTab !== "weekly") return;
     fetch(`/api/reports/prev-week?week_start=${weekStartStr}`)
@@ -94,25 +95,38 @@ export default function MainPage() {
         if (!template?.content) return;
 
         let rendered = "";
+
         if (tab === "morning") {
-          rendered = renderTemplate(template.content, buildMorningVars(today));
+          rendered = renderTemplate(
+            template.content,
+            buildMorningVars(today)
+          );
         } else if (tab === "evening") {
-          rendered = renderTemplate(template.content, buildEveningVars(today));
+          // 始業日報からURLを転記
+          let goalUrl = "";
+          const morningReport = await fetch(
+            `/api/reports?type=morning&date=${todayStr}`
+          ).then((r) => r.json());
+          if (morningReport?.content) {
+            goalUrl = extractGoalUrls(morningReport.content);
+          }
+          rendered = renderTemplate(
+            template.content,
+            buildEveningVars(today, goalUrl)
+          );
         } else {
-          // weekly: ログイン済みならカレンダーを取得
+          // weekly: カレンダー取得（DBのrefresh tokenで自動認証）
+          setCalendarLoading(true);
           let calendar: WeeklyCalendar = EMPTY_CALENDAR;
-          if (session?.accessToken) {
-            setCalendarLoading(true);
-            try {
-              const calRes = await fetch(
-                `/api/calendar?week_start=${weekStartStr}`
-              );
-              if (calRes.ok) calendar = await calRes.json();
-            } catch {
-              // カレンダー取得失敗時は空で続行
-            } finally {
-              setCalendarLoading(false);
-            }
+          try {
+            const calRes = await fetch(
+              `/api/calendar?week_start=${weekStartStr}`
+            );
+            if (calRes.ok) calendar = await calRes.json();
+          } catch {
+            // 取得失敗時は空で続行
+          } finally {
+            setCalendarLoading(false);
           }
 
           const prevRes = await fetch(
@@ -132,12 +146,11 @@ export default function MainPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayStr, weekStartStr, session?.accessToken]
+    [todayStr, weekStartStr]
   );
 
   const handleChange = (tab: Tab, value: string) => {
     setContents((prev) => ({ ...prev, [tab]: value }));
-
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(async () => {
       setIsSaving(true);
@@ -158,6 +171,7 @@ export default function MainPage() {
 
   const handleCopy = async (tab: Tab) => {
     await navigator.clipboard.writeText(contents[tab]);
+
     const reportDate = tab === "weekly" ? weekStartStr : todayStr;
     await fetch("/api/reports", {
       method: "POST",
@@ -174,6 +188,40 @@ export default function MainPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: tab, report_date: reportDate }),
     });
+
+    // 始業日報をコピーしたら終業日報の「本日の目標」を自動更新
+    if (tab === "morning") {
+      const goalUrl = extractGoalUrls(contents.morning);
+      if (goalUrl && !contents.evening) {
+        // 終業日報がまだ生成されていない場合は次回タブオープン時に自動反映
+        return;
+      }
+      if (goalUrl && contents.evening) {
+        // すでに終業日報が表示中なら即時更新
+        const template = await fetch("/api/templates?type=evening").then((r) =>
+          r.json()
+        );
+        if (template?.content) {
+          const updated = renderTemplate(
+            template.content,
+            buildEveningVars(today, goalUrl)
+          );
+          setContents((prev) => ({ ...prev, evening: updated }));
+          // DBにも保存
+          await fetch("/api/reports", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "evening",
+              report_date: todayStr,
+              week_start: null,
+              content: updated,
+            }),
+          });
+        }
+      }
+    }
+
     setIsCopied((prev) => ({ ...prev, [tab]: true }));
     setTimeout(() => setIsCopied((prev) => ({ ...prev, [tab]: false })), 3000);
   };
@@ -193,14 +241,15 @@ export default function MainPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ヘッダー */}
       <header className="border-b border-gray-200 bg-white px-4 py-3">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <h1 className="font-semibold text-gray-900">日報ツール</h1>
           <div className="flex items-center gap-3">
             {session ? (
               <>
-                <span className="text-xs text-gray-400">{session.user?.email}</span>
+                <span className="text-xs text-gray-400">
+                  {session.user?.email}
+                </span>
                 <button
                   onClick={() => signOut()}
                   className="text-xs text-gray-400 hover:text-gray-600 underline"
@@ -222,7 +271,6 @@ export default function MainPage() {
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-6">
-        {/* タブ */}
         <div className="mb-6 flex gap-1 rounded-xl bg-gray-200/60 p-1">
           {(["morning", "evening", "weekly"] as Tab[]).map((tab) => (
             <button
@@ -239,7 +287,6 @@ export default function MainPage() {
           ))}
         </div>
 
-        {/* 週次タブ：未連携の場合は案内バナーを表示 */}
         {activeTab === "weekly" && !session && (
           <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
             <p className="text-sm text-blue-700">
@@ -255,7 +302,6 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* エディタエリア */}
         {loadingTab === activeTab ? (
           <div className="flex flex-col items-center gap-3 py-20 text-gray-400">
             <RefreshCw size={20} className="animate-spin" />
@@ -283,7 +329,6 @@ export default function MainPage() {
         )}
       </main>
 
-      {/* テンプレートモーダル */}
       {templateModalTab && (
         <TemplateModal
           type={templateModalTab}

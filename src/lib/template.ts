@@ -2,6 +2,12 @@ import { CalendarEvent, WeeklyCalendar } from "@/types";
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 
+/** サーバー・クライアント両方で日本時間の「今日」を返す */
+export function getTodayJST(): Date {
+  const now = new Date();
+  return new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+}
+
 export function formatDate(date: Date): string {
   const m = date.getMonth() + 1;
   const d = date.getDate();
@@ -34,24 +40,98 @@ export function getWeekDays(weekStart: Date): Date[] {
 }
 
 export function toDateString(date: Date): string {
-  return date.toISOString().split("T")[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
-export function formatEventTime(isoString: string): string {
+/** UTC の ISO 文字列から JST の時間（0〜23）を返す */
+function getJSTHour(isoString: string): number {
   const d = new Date(isoString);
-  const h = d.getHours().toString().padStart(2, "0");
-  const m = d.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
+  return (d.getUTCHours() + 9) % 24;
 }
 
-export function formatEventsForTemplate(events: CalendarEvent[]): string {
-  if (events.length === 0) return "（予定なし）";
-  return events
-    .map((e) => {
-      if (e.allDay) return `・${e.summary}`;
-      return `・${formatEventTime(e.start)}〜${formatEventTime(e.end)} ${e.summary}`;
-    })
-    .join("\n");
+/** 「趣味」「私用」「18時以降の移動」を除外 */
+function shouldIncludeEvent(event: CalendarEvent): boolean {
+  const name = event.summary;
+  if (name.includes("趣味") || name.includes("私用")) return false;
+  if (!event.allDay && name.includes("移動")) {
+    if (getJSTHour(event.start) >= 18) return false;
+  }
+  return true;
+}
+
+/** イベントの所要時間（分）を返す。終日・無効な場合は 0 */
+function getEventDurationMinutes(event: CalendarEvent): number {
+  if (event.allDay) return 0;
+  const start = new Date(event.start).getTime();
+  const end = new Date(event.end).getTime();
+  const mins = Math.round((end - start) / 60000);
+  return mins > 0 ? mins : 0;
+}
+
+/** ▼タスク目標用：タスク名のみ（時刻なし）のリスト */
+export function formatEventsForTaskList(events: CalendarEvent[]): string {
+  const filtered = events.filter(shouldIncludeEvent);
+  if (filtered.length === 0) return "（予定なし）";
+  return filtered.map((e) => `・${e.summary}`).join("\n");
+}
+
+/** タスク別所要時間セクション全体を生成する */
+export function buildTaskTimeSummary(calendar: WeeklyCalendar): string {
+  const allEvents = [
+    ...calendar.monday,
+    ...calendar.tuesday,
+    ...calendar.wednesday,
+    ...calendar.thursday,
+    ...calendar.friday,
+  ].filter(shouldIncludeEvent);
+
+  // 名前ごとに合計時間を集計
+  const taskMap = new Map<string, number>();
+  for (const event of allEvents) {
+    const duration = getEventDurationMinutes(event);
+    if (duration <= 0) continue;
+    taskMap.set(event.summary, (taskMap.get(event.summary) ?? 0) + duration);
+  }
+
+  // 各種連絡 → ルーティン（カレンダーになければ 720 固定）
+  const contactDuration = taskMap.get("各種連絡") ?? 720;
+  taskMap.delete("各種連絡");
+
+  const routineTotal = contactDuration;
+  const promoLines: string[] = [];
+  let promoTotal = 0;
+
+  for (const [name, duration] of taskMap) {
+    promoLines.push(`・${name}(${duration})`);
+    promoTotal += duration;
+  }
+
+  const total = routineTotal + promoTotal;
+  const totalHours = Math.floor(total / 60);
+  const totalMins = total % 60;
+
+  const lines: string[] = [
+    "＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝",
+    "◎ルーティン",
+    `・各種連絡(${contactDuration})`,
+    "",
+    `計：${routineTotal}`,
+    "",
+    "◎プロモタスク",
+    ...(promoLines.length > 0
+      ? promoLines
+      : ["（カレンダー連携後に自動入力されます）"]),
+    "",
+    `計：${promoTotal}`,
+    "",
+    "＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝",
+    `(合計：${total.toLocaleString()}分 ＝ ${totalHours}時間${totalMins}分)`,
+  ];
+
+  return lines.join("\n");
 }
 
 export function renderTemplate(
@@ -64,12 +144,18 @@ export function renderTemplate(
   );
 }
 
-export function buildMorningVars(today: Date): Record<string, string> {
-  return { date: formatDate(today) };
+export function buildMorningVars(
+  today: Date,
+  goalUrl = ""
+): Record<string, string> {
+  return { date: formatDate(today), goal_url: goalUrl };
 }
 
-export function buildEveningVars(today: Date): Record<string, string> {
-  return { date: formatDate(today) };
+export function buildEveningVars(
+  today: Date,
+  goalUrl = ""
+): Record<string, string> {
+  return { date: formatDate(today), goal_url: goalUrl };
 }
 
 export function buildWeeklyVars(
@@ -79,10 +165,8 @@ export function buildWeeklyVars(
 ): Record<string, string> {
   const days = getWeekDays(weekStart);
   const weekEnd = days[4];
-
   const { prev_action_change, prev_week_tasks } =
     extractPrevWeekSections(prevWeekContent);
-
   const weekRange = `${weekStart.getMonth() + 1}/${weekStart.getDate()}(月)～${weekEnd.getMonth() + 1}/${weekEnd.getDate()}(金)`;
 
   return {
@@ -97,16 +181,17 @@ export function buildWeeklyVars(
     wednesday_date: formatShortDate(days[2]),
     thursday_date: formatShortDate(days[3]),
     friday_date: formatShortDate(days[4]),
-    monday_events: formatEventsForTemplate(calendar.monday),
-    tuesday_events: formatEventsForTemplate(calendar.tuesday),
-    wednesday_events: formatEventsForTemplate(calendar.wednesday),
-    thursday_events: formatEventsForTemplate(calendar.thursday),
-    friday_events: formatEventsForTemplate(calendar.friday),
+    monday_events: formatEventsForTaskList(calendar.monday),
+    tuesday_events: formatEventsForTaskList(calendar.tuesday),
+    wednesday_events: formatEventsForTaskList(calendar.wednesday),
+    thursday_events: formatEventsForTaskList(calendar.thursday),
+    friday_events: formatEventsForTaskList(calendar.friday),
     week_range: weekRange,
+    task_time_section: buildTaskTimeSummary(calendar),
   };
 }
 
-function extractPrevWeekSections(content?: string): {
+export function extractPrevWeekSections(content?: string): {
   prev_action_change: string;
   prev_week_tasks: string;
 } {
@@ -117,13 +202,24 @@ function extractPrevWeekSections(content?: string): {
     };
   }
 
-  const actionChangeMatch = content.match(
-    /３）行動変化[^\n]*\n+([\s\S]*?)(?=４）|$)/
+  // ３）行動変化 セクションを抽出
+  const actionMatch = content.match(
+    /３）行動変化[^\n]*\n+([\s\S]*?)(?=\n４）|\n５）|$)/
   );
-  const tasksMatch = content.match(/▼先週のタスク目標\n+([\s\S]*?)(?=２）|$)/);
+
+  // ▼タスク目標 セクションを抽出（▼タスク別 または ５）まで）
+  const tasksMatch = content.match(
+    /▼タスク目標\n+([\s\S]*?)(?=\n▼\d|＝＝|５）|$)/
+  );
 
   return {
-    prev_action_change: actionChangeMatch?.[1]?.trim() ?? content.slice(0, 300),
+    prev_action_change: actionMatch?.[1]?.trim() ?? "（抽出できませんでした）",
     prev_week_tasks: tasksMatch?.[1]?.trim() ?? "（抽出できませんでした）",
   };
+}
+
+/** 始業日報のテキストから URL を抽出する */
+export function extractGoalUrls(morningContent: string): string {
+  const urls = morningContent.match(/https?:\/\/[^\s\n]+/g);
+  return urls ? urls.join("\n") : "";
 }

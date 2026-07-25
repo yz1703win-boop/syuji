@@ -45,6 +45,16 @@ export async function initDb() {
   `;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS settings (
+      id SERIAL PRIMARY KEY,
+      key VARCHAR(100) NOT NULL UNIQUE,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // デフォルトテンプレートを挿入（存在しない場合のみ）
+  await sql`
     INSERT INTO templates (type, content) VALUES
     ('morning', ${DEFAULT_MORNING_TEMPLATE}),
     ('evening', ${DEFAULT_EVENING_TEMPLATE}),
@@ -53,19 +63,48 @@ export async function initDb() {
   `;
 }
 
+export async function resetTemplates() {
+  const sql = getDb();
+  await sql`
+    INSERT INTO templates (type, content) VALUES
+    ('morning', ${DEFAULT_MORNING_TEMPLATE}),
+    ('evening', ${DEFAULT_EVENING_TEMPLATE}),
+    ('weekly', ${DEFAULT_WEEKLY_TEMPLATE})
+    ON CONFLICT (type) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()
+  `;
+}
+
+export async function saveRefreshToken(token: string) {
+  const sql = getDb();
+  await sql`
+    INSERT INTO settings (key, value, updated_at)
+    VALUES ('google_refresh_token', ${token}, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `;
+}
+
+export async function getRefreshToken(): Promise<string | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT value FROM settings WHERE key = 'google_refresh_token' LIMIT 1
+  `;
+  return rows[0]?.value ?? null;
+}
+
 const DEFAULT_MORNING_TEMPLATE = `━━━━━━━━━━━━━━━━━━━━━━━━
 {{date}}　始業日報
 ━━━━━━━━━━━━━━━━━━━━━━━━
 おはようございます。
 本日の始業日報を提出いたします。
-何卒よろしくお願いいたします。`;
+何卒よろしくお願いいたします。
+{{goal_url}}`;
 
 const DEFAULT_EVENING_TEMPLATE = `━━━━━━━━━━━━━━━━━━━━━━━━
 {{date}}　終業日報
 ━━━━━━━━━━━━━━━━━━━━━━━━
 1　本日の目標
 ￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣
-
+{{goal_url}}
 
 2　本日の結果
 ￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣
@@ -127,11 +166,7 @@ const DEFAULT_WEEKLY_TEMPLATE = `{{header}}
 {{friday_events}}
 
 ▼{{week_range}}タスク別所要時間
-＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-
-（タスクと所要時間を入力してください）
-
-＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+{{task_time_section}}
 
 ５）目標達成のためにほしい権限
 

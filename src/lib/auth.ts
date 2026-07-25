@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { saveRefreshToken } from "@/lib/db";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -20,7 +21,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, account }) {
-      if (account) {
+      if (account?.refresh_token) {
+        // Googleカレンダー自動連携のためrefresh tokenをDBに永続保存
+        try {
+          await saveRefreshToken(account.refresh_token);
+        } catch (e) {
+          console.error("Failed to save refresh token:", e);
+        }
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
