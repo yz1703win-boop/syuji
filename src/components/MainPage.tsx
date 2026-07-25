@@ -34,6 +34,13 @@ const EMPTY_CALENDAR: WeeklyCalendar = {
   wednesday: [],
   thursday: [],
   friday: [],
+  holidays: {
+    monday: false,
+    tuesday: false,
+    wednesday: false,
+    thursday: false,
+    friday: false,
+  },
 };
 
 async function fetchScheduleUrl(type: "morning" | "evening", date: string) {

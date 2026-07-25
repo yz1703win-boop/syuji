@@ -26,10 +26,14 @@ export interface CalendarEvent {
   allDay: boolean;
 }
 
+export type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
+
 export interface WeeklyCalendar {
   monday: CalendarEvent[];
   tuesday: CalendarEvent[];
   wednesday: CalendarEvent[];
   thursday: CalendarEvent[];
   friday: CalendarEvent[];
+  /** true の曜日はその日を「休み」として扱う */
+  holidays: Record<DayKey, boolean>;
 }

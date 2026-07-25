@@ -1,4 +1,4 @@
-import { CalendarEvent, WeeklyCalendar } from "@/types";
+import { CalendarEvent, DayKey, WeeklyCalendar } from "@/types";
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 
@@ -25,6 +25,18 @@ export function formatShortDate(date: Date): string {
 export function getWeekStart(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay();
+
+  // 日曜23:30以降は「翌週の月曜」として扱う
+  if (
+    day === 0 &&
+    (d.getHours() > 23 || (d.getHours() === 23 && d.getMinutes() >= 30))
+  ) {
+    const nextMonday = new Date(d);
+    nextMonday.setDate(d.getDate() + 1);
+    nextMonday.setHours(0, 0, 0, 0);
+    return nextMonday;
+  }
+
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
@@ -71,22 +83,29 @@ function getEventDurationMinutes(event: CalendarEvent): number {
   return mins > 0 ? mins : 0;
 }
 
-/** ▼タスク目標用：タスク名のみ（時刻なし）のリスト */
-export function formatEventsForTaskList(events: CalendarEvent[]): string {
+/** ▼タスク目標用：タスク名のみ（時刻なし）のリスト。休日は「休み」 */
+export function formatEventsForTaskList(
+  events: CalendarEvent[],
+  isHoliday: boolean
+): string {
+  if (isHoliday) return "休み";
   const filtered = events.filter(shouldIncludeEvent);
   if (filtered.length === 0) return "（予定なし）";
   return filtered.map((e) => `・${e.summary}`).join("\n");
 }
 
-/** タスク別所要時間セクション全体を生成する */
+/** タスク別所要時間セクション全体を生成する（休日の曜日は除外） */
 export function buildTaskTimeSummary(calendar: WeeklyCalendar): string {
-  const allEvents = [
-    ...calendar.monday,
-    ...calendar.tuesday,
-    ...calendar.wednesday,
-    ...calendar.thursday,
-    ...calendar.friday,
-  ].filter(shouldIncludeEvent);
+  const DAY_KEYS: DayKey[] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+  ];
+  const allEvents = DAY_KEYS.filter((k) => !calendar.holidays[k])
+    .flatMap((k) => calendar[k])
+    .filter(shouldIncludeEvent);
 
   // 名前ごとに合計時間を集計
   const taskMap = new Map<string, number>();
@@ -237,11 +256,11 @@ export function buildWeeklyVars(
     wednesday_date: formatShortDate(days[2]),
     thursday_date: formatShortDate(days[3]),
     friday_date: formatShortDate(days[4]),
-    monday_events: formatEventsForTaskList(calendar.monday),
-    tuesday_events: formatEventsForTaskList(calendar.tuesday),
-    wednesday_events: formatEventsForTaskList(calendar.wednesday),
-    thursday_events: formatEventsForTaskList(calendar.thursday),
-    friday_events: formatEventsForTaskList(calendar.friday),
+    monday_events: formatEventsForTaskList(calendar.monday, calendar.holidays.monday),
+    tuesday_events: formatEventsForTaskList(calendar.tuesday, calendar.holidays.tuesday),
+    wednesday_events: formatEventsForTaskList(calendar.wednesday, calendar.holidays.wednesday),
+    thursday_events: formatEventsForTaskList(calendar.thursday, calendar.holidays.thursday),
+    friday_events: formatEventsForTaskList(calendar.friday, calendar.holidays.friday),
     week_range: weekRange,
     task_time_section: buildTaskTimeSummary(calendar),
   };
