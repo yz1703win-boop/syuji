@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resetTemplates } from "@/lib/db";
 
-export async function POST() {
+async function handler() {
   try {
     await resetTemplates();
     return NextResponse.json({ ok: true });
@@ -9,3 +9,6 @@ export async function POST() {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
+
+export const GET = handler;
+export const POST = handler;
