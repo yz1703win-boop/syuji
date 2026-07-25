@@ -153,9 +153,65 @@ export function buildMorningVars(
 
 export function buildEveningVars(
   today: Date,
-  goalUrl = ""
+  goalUrl = "",
+  resultUrl = ""
 ): Record<string, string> {
-  return { date: formatDate(today), goal_url: goalUrl };
+  return {
+    date: formatDate(today),
+    goal_url: goalUrl,
+    result_url: resultUrl,
+  };
+}
+
+const GYAZO_URL_RE = /https?:\/\/(?:i\.)?gyazo\.com\/[^\s\n]+/gi;
+
+/** 始業: 何卒〜の下 / {{goal_url}} に日程URLを入れる・差し替え */
+export function upsertMorningScheduleUrl(content: string, url: string): string {
+  if (content.includes("{{goal_url}}")) {
+    return content.replaceAll("{{goal_url}}", url);
+  }
+
+  const marker = "何卒よろしくお願いいたします。";
+  const idx = content.indexOf(marker);
+  if (idx === -1) {
+    // マーカーが無い場合は末尾に追加
+    const without = content.replace(GYAZO_URL_RE, "").trimEnd();
+    return `${without}\n${url}`;
+  }
+
+  const before = content.slice(0, idx + marker.length);
+  let after = content.slice(idx + marker.length);
+  // 直後の Gyazo URL 行を除去して差し替え
+  after = after.replace(/^\s*\n?(?:https?:\/\/(?:i\.)?gyazo\.com\/[^\s\n]+\s*\n?)*/i, "\n");
+  return `${before}\n${url}${after.startsWith("\n") ? after : `\n${after}`}`;
+}
+
+/** 終業: 「2　本日の結果」下線の下 / {{result_url}} に日程URLを入れる・差し替え */
+export function upsertEveningResultUrl(content: string, url: string): string {
+  if (content.includes("{{result_url}}")) {
+    return content.replaceAll("{{result_url}}", url);
+  }
+
+  const sectionRe =
+    /(2　本日の結果\n[￣ー\-＝=]{8,}\n)((?:https?:\/\/(?:i\.)?gyazo\.com\/[^\s\n]+\n?)*)/;
+  if (sectionRe.test(content)) {
+    return content.replace(sectionRe, `$1${url}\n`);
+  }
+
+  // フォールバック: セクション見出しの直後に挿入
+  const marker = "2　本日の結果";
+  const idx = content.indexOf(marker);
+  if (idx === -1) return `${content.trimEnd()}\n${url}`;
+
+  const lineEnd = content.indexOf("\n", idx);
+  if (lineEnd === -1) return `${content}\n${url}`;
+  // 下線行の次へ
+  const afterHeader = content.indexOf("\n", lineEnd + 1);
+  if (afterHeader === -1) return `${content}\n${url}`;
+  const before = content.slice(0, afterHeader + 1);
+  let after = content.slice(afterHeader + 1);
+  after = after.replace(/^(?:https?:\/\/(?:i\.)?gyazo\.com\/[^\s\n]+\s*\n?)*/i, "");
+  return `${before}${url}\n${after}`;
 }
 
 export function buildWeeklyVars(

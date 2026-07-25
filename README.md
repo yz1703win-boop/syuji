@@ -5,6 +5,7 @@
 ## 機能
 
 - **始業日報 / 終業日報**: 日付に合わせてテンプレートを自動生成・編集・コピー
+- **日程画像（Gyazo）**: Googleカレンダーから今日の予定を表形式画像化し、Gyazo URLを日報に自動挿入
 - **週次チャット**: Googleカレンダーから当週（月〜金）の予定を自動取得してテンプレートを生成
 - **前週参照**: 週次チャットタブで前週の保存済みコンテンツを折りたたみ表示
 - **テンプレート編集**: 各タブのテンプレートをアプリ内で編集・保存可能
@@ -64,6 +65,7 @@ npm run dev
    - `AUTH_URL` (本番URLに変更)
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
+   - `GYAZO_ACCESS_TOKEN` ([Gyazo Applications](https://gyazo.com/oauth/applications) で発行)
 3. Google Cloud Console の承認済みリダイレクト URI に本番URLを追加
 
 ## テンプレートのプレースホルダー
@@ -72,6 +74,8 @@ npm run dev
 | プレースホルダー | 説明 |
 |---|---|
 | `{{date}}` | 今日の日付（例: 7月22日(水)） |
+| `{{goal_url}}` | 始業: 日程Gyazo URL / 終業: 本日の目標（始業から転記） |
+| `{{result_url}}` | 終業のみ: 「本日の結果」用の日程Gyazo URL |
 
 ### 週次チャット
 | プレースホルダー | 説明 |

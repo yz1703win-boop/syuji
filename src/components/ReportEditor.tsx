@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, Copy, RotateCcw, Settings } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { Check, Copy, ImagePlus, RotateCcw, Settings } from "lucide-react";
 
 interface EditorProps {
   value: string;
@@ -9,8 +9,12 @@ interface EditorProps {
   onCopy: () => Promise<void>;
   onReset?: () => void;
   onOpenSettings?: () => void;
+  onRegenerateSchedule?: () => void;
   isSaving?: boolean;
   isCopied?: boolean;
+  isScheduleLoading?: boolean;
+  scheduleError?: string | null;
+  showScheduleButton?: boolean;
   placeholder?: string;
 }
 
@@ -20,13 +24,16 @@ export default function ReportEditor({
   onCopy,
   onReset,
   onOpenSettings,
+  onRegenerateSchedule,
   isSaving,
   isCopied,
+  isScheduleLoading,
+  scheduleError,
+  showScheduleButton,
   placeholder,
 }: EditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // テキストエリアの高さを自動調整
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -36,11 +43,27 @@ export default function ReportEditor({
 
   return (
     <div className="flex flex-col gap-3">
+      {scheduleError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          日程画像の生成に失敗しました: {scheduleError}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-gray-400">
           {isSaving && <span>保存中...</span>}
+          {isScheduleLoading && <span>日程画像を生成中...</span>}
         </div>
         <div className="flex items-center gap-2">
+          {showScheduleButton && onRegenerateSchedule && (
+            <button
+              onClick={onRegenerateSchedule}
+              disabled={isScheduleLoading}
+              className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <ImagePlus size={12} />
+              {isScheduleLoading ? "生成中..." : "日程URLを再生成"}
+            </button>
+          )}
           {onReset && (
             <button
               onClick={onReset}

@@ -15,6 +15,8 @@ import {
   getWeekStart,
   renderTemplate,
   toDateString,
+  upsertEveningResultUrl,
+  upsertMorningScheduleUrl,
 } from "@/lib/template";
 import { WeeklyCalendar } from "@/types";
 
@@ -34,6 +36,19 @@ const EMPTY_CALENDAR: WeeklyCalendar = {
   friday: [],
 };
 
+async function fetchScheduleUrl(type: "morning" | "evening", date: string) {
+  const res = await fetch("/api/schedule/gyazo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, date }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error ?? "日程画像の生成に失敗しました");
+  }
+  return data.url as string;
+}
+
 export default function MainPage() {
   const { data: session, status } = useSession();
   const [activeTab, setActiveTab] = useState<Tab>("morning");
@@ -52,14 +67,32 @@ export default function MainPage() {
   const [prevWeekContent, setPrevWeekContent] = useState<string | null>(null);
   const [loadingTab, setLoadingTab] = useState<Tab | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
-  // 毎回レンダリング時にJSTの今日を使う
   const today = getTodayJST();
   const todayStr = toDateString(today);
   const weekStart = getWeekStart(today);
   const weekStartStr = toDateString(weekStart);
 
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const saveReport = useCallback(
+    async (tab: Tab, content: string) => {
+      const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+      await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: tab,
+          report_date: reportDate,
+          week_start: tab === "weekly" ? weekStartStr : null,
+          content,
+        }),
+      });
+    },
+    [todayStr, weekStartStr]
+  );
 
   useEffect(() => {
     if (status === "loading") return;
@@ -75,9 +108,36 @@ export default function MainPage() {
       .catch(() => setPrevWeekContent(null));
   }, [activeTab, weekStartStr]);
 
+  const applyScheduleUrl = useCallback(
+    async (tab: "morning" | "evening", baseContent: string) => {
+      setScheduleLoading(true);
+      setScheduleError(null);
+      try {
+        const url = await fetchScheduleUrl(tab, todayStr);
+        const updated =
+          tab === "morning"
+            ? upsertMorningScheduleUrl(baseContent, url)
+            : upsertEveningResultUrl(baseContent, url);
+        setContents((prev) => ({ ...prev, [tab]: updated }));
+        await saveReport(tab, updated);
+        return updated;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setScheduleError(msg);
+        setContents((prev) => ({ ...prev, [tab]: baseContent }));
+        await saveReport(tab, baseContent);
+        return baseContent;
+      } finally {
+        setScheduleLoading(false);
+      }
+    },
+    [saveReport, todayStr]
+  );
+
   const generateTab = useCallback(
     async (tab: Tab) => {
       setLoadingTab(tab);
+      setScheduleError(null);
       try {
         const reportDate = tab === "weekly" ? weekStartStr : todayStr;
         const saved = await fetch(
@@ -99,10 +159,15 @@ export default function MainPage() {
         if (tab === "morning") {
           rendered = renderTemplate(
             template.content,
-            buildMorningVars(today)
+            buildMorningVars(today, "")
           );
-        } else if (tab === "evening") {
-          // 始業日報からURLを転記
+          setContents((prev) => ({ ...prev, morning: rendered }));
+          setLoadingTab(null);
+          await applyScheduleUrl("morning", rendered);
+          return;
+        }
+
+        if (tab === "evening") {
           let goalUrl = "";
           const morningReport = await fetch(
             `/api/reports?type=morning&date=${todayStr}`
@@ -112,33 +177,36 @@ export default function MainPage() {
           }
           rendered = renderTemplate(
             template.content,
-            buildEveningVars(today, goalUrl)
+            buildEveningVars(today, goalUrl, "")
           );
-        } else {
-          // weekly: カレンダー取得（DBのrefresh tokenで自動認証）
-          setCalendarLoading(true);
-          let calendar: WeeklyCalendar = EMPTY_CALENDAR;
-          try {
-            const calRes = await fetch(
-              `/api/calendar?week_start=${weekStartStr}`
-            );
-            if (calRes.ok) calendar = await calRes.json();
-          } catch {
-            // 取得失敗時は空で続行
-          } finally {
-            setCalendarLoading(false);
-          }
-
-          const prevRes = await fetch(
-            `/api/reports/prev-week?week_start=${weekStartStr}`
-          ).then((r) => r.json());
-          const prevContent = prevRes?.content ?? undefined;
-
-          rendered = renderTemplate(
-            template.content,
-            buildWeeklyVars(weekStart, calendar, prevContent)
-          );
+          setContents((prev) => ({ ...prev, evening: rendered }));
+          setLoadingTab(null);
+          await applyScheduleUrl("evening", rendered);
+          return;
         }
+
+        setCalendarLoading(true);
+        let calendar: WeeklyCalendar = EMPTY_CALENDAR;
+        try {
+          const calRes = await fetch(
+            `/api/calendar?week_start=${weekStartStr}`
+          );
+          if (calRes.ok) calendar = await calRes.json();
+        } catch {
+          // 取得失敗時は空で続行
+        } finally {
+          setCalendarLoading(false);
+        }
+
+        const prevRes = await fetch(
+          `/api/reports/prev-week?week_start=${weekStartStr}`
+        ).then((r) => r.json());
+        const prevContent = prevRes?.content ?? undefined;
+
+        rendered = renderTemplate(
+          template.content,
+          buildWeeklyVars(weekStart, calendar, prevContent)
+        );
 
         setContents((prev) => ({ ...prev, [tab]: rendered }));
       } finally {
@@ -146,7 +214,7 @@ export default function MainPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayStr, weekStartStr]
+    [todayStr, weekStartStr, applyScheduleUrl]
   );
 
   const handleChange = (tab: Tab, value: string) => {
@@ -154,17 +222,7 @@ export default function MainPage() {
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(async () => {
       setIsSaving(true);
-      const reportDate = tab === "weekly" ? weekStartStr : todayStr;
-      await fetch("/api/reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: tab,
-          report_date: reportDate,
-          week_start: tab === "weekly" ? weekStartStr : null,
-          content: value,
-        }),
-      });
+      await saveReport(tab, value);
       setIsSaving(false);
     }, 1000);
   };
@@ -173,51 +231,37 @@ export default function MainPage() {
     await navigator.clipboard.writeText(contents[tab]);
 
     const reportDate = tab === "weekly" ? weekStartStr : todayStr;
-    await fetch("/api/reports", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: tab,
-        report_date: reportDate,
-        week_start: tab === "weekly" ? weekStartStr : null,
-        content: contents[tab],
-      }),
-    });
+    await saveReport(tab, contents[tab]);
     await fetch("/api/reports", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: tab, report_date: reportDate }),
     });
 
-    // 始業日報をコピーしたら終業日報の「本日の目標」を自動更新
     if (tab === "morning") {
       const goalUrl = extractGoalUrls(contents.morning);
       if (goalUrl && !contents.evening) {
-        // 終業日報がまだ生成されていない場合は次回タブオープン時に自動反映
         return;
       }
       if (goalUrl && contents.evening) {
-        // すでに終業日報が表示中なら即時更新
         const template = await fetch("/api/templates?type=evening").then((r) =>
           r.json()
         );
         if (template?.content) {
+          const resultMatch = contents.evening.match(
+            /2　本日の結果\n[￣ー\-＝=]{8,}\n(https?:\/\/[^\s\n]+)?/
+          );
+          const resultUrl = resultMatch?.[1] ?? "";
           const updated = renderTemplate(
             template.content,
-            buildEveningVars(today, goalUrl)
+            buildEveningVars(today, goalUrl, resultUrl)
           );
-          setContents((prev) => ({ ...prev, evening: updated }));
-          // DBにも保存
-          await fetch("/api/reports", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "evening",
-              report_date: todayStr,
-              week_start: null,
-              content: updated,
-            }),
-          });
+          // 既存の結果URLを保持しつつ目標URLを更新
+          const withResult = resultUrl
+            ? upsertEveningResultUrl(updated, resultUrl)
+            : updated;
+          setContents((prev) => ({ ...prev, evening: withResult }));
+          await saveReport("evening", withResult);
         }
       }
     }
@@ -226,9 +270,28 @@ export default function MainPage() {
     setTimeout(() => setIsCopied((prev) => ({ ...prev, [tab]: false })), 3000);
   };
 
-  const handleReset = (tab: Tab) => {
+  const handleReset = async (tab: Tab) => {
+    const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+    // 保存済みを消して再生成
+    await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: tab,
+        report_date: reportDate,
+        week_start: tab === "weekly" ? weekStartStr : null,
+        content: "",
+      }),
+    });
     setContents((prev) => ({ ...prev, [tab]: "" }));
-    generateTab(tab);
+    await generateTab(tab);
+  };
+
+  const handleRegenerateSchedule = async () => {
+    if (activeTab !== "morning" && activeTab !== "evening") return;
+    const base = contents[activeTab];
+    if (!base) return;
+    await applyScheduleUrl(activeTab, base);
   };
 
   if (status === "loading") {
@@ -308,7 +371,9 @@ export default function MainPage() {
             <span className="text-sm">
               {calendarLoading
                 ? "Googleカレンダーを取得中..."
-                : "テンプレートを生成中..."}
+                : scheduleLoading
+                  ? "日程画像を生成中..."
+                  : "テンプレートを生成中..."}
             </span>
           </div>
         ) : (
@@ -322,8 +387,18 @@ export default function MainPage() {
               onCopy={() => handleCopy(activeTab)}
               onReset={() => handleReset(activeTab)}
               onOpenSettings={() => setTemplateModalTab(activeTab)}
+              onRegenerateSchedule={handleRegenerateSchedule}
+              showScheduleButton={
+                activeTab === "morning" || activeTab === "evening"
+              }
               isSaving={isSaving}
               isCopied={isCopied[activeTab]}
+              isScheduleLoading={scheduleLoading}
+              scheduleError={
+                activeTab === "morning" || activeTab === "evening"
+                  ? scheduleError
+                  : null
+              }
             />
           </div>
         )}
