@@ -64,10 +64,16 @@ function getJSTHour(isoString: string): number {
   return (d.getUTCHours() + 9) % 24;
 }
 
-/** 「趣味」「私用」「18時以降の移動」を除外 */
+/** 「趣味」「私用」「飯」「飯系」「風呂」「18時以降の移動」を除外 */
 function shouldIncludeEvent(event: CalendarEvent): boolean {
   const name = event.summary;
-  if (name.includes("趣味") || name.includes("私用")) return false;
+  if (
+    name.includes("趣味") ||
+    name.includes("私用") ||
+    name.includes("飯") ||
+    name.includes("風呂")
+  )
+    return false;
   if (!event.allDay && name.includes("移動")) {
     if (getJSTHour(event.start) >= 18) return false;
   }
@@ -301,7 +307,7 @@ export function extractGoalUrls(morningContent: string): string {
 
 // ─── 残業申請ヘルパー ────────────────────────────────────────
 
-const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "課題", "飯"];
+const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "課題", "飯", "風呂"];
 
 /** 残業申請に含めないイベントを除外 */
 export function shouldIncludeOvertimeEvent(eventName: string): boolean {

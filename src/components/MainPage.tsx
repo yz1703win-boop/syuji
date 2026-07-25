@@ -413,7 +413,7 @@ export default function MainPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-4 py-3">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <h1 className="font-semibold text-gray-900">日報ツール</h1>
+          <h1 className="font-semibold text-gray-900">各種報告オートメーションツール</h1>
           <div className="flex items-center gap-3">
             {session ? (
               <>

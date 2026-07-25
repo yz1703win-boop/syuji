@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "日報ツール",
-  description: "始業日報・終業日報・週次チャット作成ツール",
+  title: "各種報告オートメーションツール",
+  description: "始業日報・終業日報・週次チャット・残業申請作成ツール",
 };
 
 export default function RootLayout({
