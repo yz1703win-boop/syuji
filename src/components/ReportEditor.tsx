@@ -38,7 +38,9 @@ export default function ReportEditor({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    // 末尾の改行はブラウザが scrollHeight に含めないため、手動で加算
+    const trailingNewlines = (value.match(/\n+$/) ?? [""])[0].length;
+    el.style.height = `${el.scrollHeight + trailingNewlines * 21}px`;
   }, [value]);
 
   return (
