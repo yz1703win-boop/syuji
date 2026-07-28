@@ -27,7 +27,12 @@ export async function GET() {
 
   if (reportRows[0]) {
     const minutes = parseOvertimeMinutes(reportRows[0].content);
-    const date = String(reportRows[0].report_date).slice(0, 10);
+    // DBがDateオブジェクトを返す場合があるため YYYY-MM-DD に正規化
+    const raw = reportRows[0].report_date;
+    const date =
+      raw instanceof Date
+        ? raw.toISOString().slice(0, 10)
+        : String(raw).slice(0, 10);
     // settings も最新値で上書きしておく
     const value = JSON.stringify({ date, minutes });
     await sql`

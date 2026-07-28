@@ -345,6 +345,15 @@ export function parseOvertimeMinutes(content: string): number {
   return h * 60 + m;
 }
 
+/** コピー済み残業申請の content から「今月の現残業時間⇒」の分数を取得 */
+export function parseTotalOvertimeFromContent(content: string): number {
+  const match = content.match(/今月の現残業時間⇒(\d+)時間(\d+)?分?/);
+  if (!match) return 0;
+  const h = parseInt(match[1]) || 0;
+  const m = parseInt(match[2] ?? "0") || 0;
+  return h * 60 + m;
+}
+
 /** "46:55" や "46時間55分" などの入力を分数に変換 */
 export function parseOvertimeSeedInput(input: string): number {
   const colonMatch = input.match(/^(\d+):(\d{2})$/);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import getDb from "@/lib/db";
-import { parseOvertimeMinutes } from "@/lib/template";
+import { parseTotalOvertimeFromContent } from "@/lib/template";
 
 function settingsKey(month: string) {
   return `overtime_total_${month}`;
@@ -97,9 +97,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true, removed_minutes: 0, total_minutes: 0, entries: [] });
   }
 
-  // 差し引く分数を合計
+  // 差し引く分数を合計（コピー時の「今月の現残業時間⇒」の値を使用）
   const subtractMinutes = recentRows.reduce((sum, row) => {
-    return sum + parseOvertimeMinutes(row.content);
+    return sum + parseTotalOvertimeFromContent(row.content);
   }, 0);
 
   const key = settingsKey(month);
@@ -116,7 +116,7 @@ export async function DELETE(req: NextRequest) {
 
   const entries = recentRows.map((r) => ({
     date: r.report_date,
-    minutes: parseOvertimeMinutes(r.content),
+    total_minutes: parseTotalOvertimeFromContent(r.content),
   }));
 
   return NextResponse.json({ ok: true, removed_minutes: subtractMinutes, total_minutes: newTotal, entries });
