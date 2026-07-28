@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { Calendar, RefreshCw } from "lucide-react";
+import { Calendar, Pencil, RefreshCw, X, Check } from "lucide-react";
 import ReportEditor from "@/components/ReportEditor";
 import TemplateModal from "@/components/TemplateModal";
 import PrevWeekPanel from "@/components/PrevWeekPanel";
@@ -513,9 +513,18 @@ export default function MainPage() {
               <PrevWeekPanel content={prevWeekContent} />
             )}
             {activeTab === "overtime" && overtimeLastApplied && (
-              <div className="self-start rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 shadow-sm">
-                前日{formatDateJP(overtimeLastApplied.date)}申請の残業時間：{formatMinutesShort(overtimeLastApplied.minutes)}
-              </div>
+              <OvertimeLastEditor
+                value={overtimeLastApplied}
+                onChange={(updated) => {
+                  setOvertimeLastApplied(updated);
+                  // settings に保存
+                  fetch("/api/overtime/last", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(updated),
+                  });
+                }}
+              />
             )}
             <ReportEditor
               value={contents[activeTab]}
@@ -614,4 +623,72 @@ export default function MainPage() {
       )}
     </div>
   );
+}
+
+// ─── 前日残業時間インライン編集 ────────────────────────────────────────
+
+function OvertimeLastEditor({
+  value,
+  onChange,
+}: {
+  value: { date: string; minutes: number };
+  onChange: (v: { date: string; minutes: number }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState("");
+
+  const handleSave = () => {
+    const mins = parseOvertimeSeedInputLocal(input);
+    if (mins <= 0) return;
+    onChange({ date: value.date, minutes: mins });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="self-start flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 shadow-sm">
+        <span className="text-xs text-blue-700 whitespace-nowrap">
+          前日{formatDateJP(value.date)}申請の残業時間：
+        </span>
+        <input
+          autoFocus
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditing(false); }}
+          placeholder="例: 1:00 または 1時間"
+          className="w-32 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+        />
+        <button onClick={handleSave} className="text-blue-600 hover:text-blue-800">
+          <Check size={13} />
+        </button>
+        <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600">
+          <X size={13} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="self-start flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 shadow-sm">
+      <span>前日{formatDateJP(value.date)}申請の残業時間：{formatMinutesShort(value.minutes)}</span>
+      <button
+        onClick={() => { setInput(""); setEditing(true); }}
+        className="text-gray-400 hover:text-gray-600"
+        title="編集"
+      >
+        <Pencil size={12} />
+      </button>
+    </div>
+  );
+}
+
+function parseOvertimeSeedInputLocal(input: string): number {
+  const colonMatch = input.match(/^(\d+):(\d{2})$/);
+  if (colonMatch) return parseInt(colonMatch[1]) * 60 + parseInt(colonMatch[2]);
+  const japanMatch = input.match(/(\d+)時間(\d+)?分?/);
+  if (japanMatch) return parseInt(japanMatch[1]) * 60 + parseInt(japanMatch[2] ?? "0");
+  const hoursOnly = input.match(/^(\d+)時間?$/);
+  if (hoursOnly) return parseInt(hoursOnly[1]) * 60;
+  return 0;
 }
