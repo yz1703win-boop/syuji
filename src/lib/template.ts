@@ -8,6 +8,18 @@ export function getTodayJST(): Date {
   return new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
 }
 
+/** 終業日報用の日付（JST 7時前は前日扱い） */
+export function getEveningDateJST(): Date {
+  const now = new Date();
+  const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const jstHour = jstNow.getUTCHours();
+  const base = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  if (jstHour < 7) {
+    base.setDate(base.getDate() - 1);
+  }
+  return base;
+}
+
 export function formatDate(date: Date): string {
   const m = date.getMonth() + 1;
   const d = date.getDate();
@@ -323,9 +335,10 @@ export function formatMinutes(minutes: number): string {
   return `${h}時間${m}分`;
 }
 
-/** コピー済み残業申請の content から残業分数を取得 */
+/** コピー済み残業申請の content から「・残業時間⇒」の分数を取得（今月合計行は除外） */
 export function parseOvertimeMinutes(content: string): number {
-  const match = content.match(/残業時間⇒(\d+)時間(\d+)?分?/);
+  // "・残業時間⇒X時間Y分" に限定（今月の現残業時間⇒ は除外）
+  const match = content.match(/^・残業時間⇒(\d+)時間(\d+)?分?/m);
   if (!match) return 0;
   const h = parseInt(match[1]) || 0;
   const m = parseInt(match[2] ?? "0") || 0;

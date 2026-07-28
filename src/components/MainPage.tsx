@@ -12,6 +12,7 @@ import {
   buildOvertimeVars,
   buildWeeklyVars,
   extractGoalUrls,
+  getEveningDateJST,
   getTodayJST,
   getWeekStart,
   OvertimeEvent,
@@ -108,6 +109,8 @@ export default function MainPage() {
 
   const today = getTodayJST();
   const todayStr = toDateString(today);
+  const eveningDate = getEveningDateJST();
+  const eveningDateStr = toDateString(eveningDate);
   const weekStart = getWeekStart(today);
   const weekStartStr = toDateString(weekStart);
 
@@ -115,7 +118,12 @@ export default function MainPage() {
 
   const saveReport = useCallback(
     async (tab: Tab, content: string) => {
-      const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+      const reportDate =
+        tab === "weekly"
+          ? weekStartStr
+          : tab === "evening"
+            ? eveningDateStr
+            : todayStr;
       await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,7 +135,7 @@ export default function MainPage() {
         }),
       });
     },
-    [todayStr, weekStartStr]
+    [todayStr, eveningDateStr, weekStartStr]
   );
 
   useEffect(() => {
@@ -175,7 +183,12 @@ export default function MainPage() {
       setLoadingTab(tab);
       setScheduleError(null);
       try {
-        const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+        const reportDate =
+          tab === "weekly"
+            ? weekStartStr
+            : tab === "evening"
+              ? eveningDateStr
+              : todayStr;
 
         // overtime タブはカレンダーから毎回最新データを生成（保存済みは使わない）
         if (tab !== "overtime") {
@@ -210,14 +223,14 @@ export default function MainPage() {
         if (tab === "evening") {
           let goalUrl = "";
           const morningReport = await fetch(
-            `/api/reports?type=morning&date=${todayStr}`
+            `/api/reports?type=morning&date=${eveningDateStr}`
           ).then((r) => r.json());
           if (morningReport?.content) {
             goalUrl = extractGoalUrls(morningReport.content);
           }
           rendered = renderTemplate(
             template.content,
-            buildEveningVars(today, goalUrl, "")
+            buildEveningVars(eveningDate, goalUrl, "")
           );
           setContents((prev) => ({ ...prev, evening: rendered }));
           setLoadingTab(null);
@@ -315,7 +328,12 @@ export default function MainPage() {
   const handleCopy = async (tab: Tab) => {
     await navigator.clipboard.writeText(contents[tab]);
 
-    const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+    const reportDate =
+      tab === "weekly"
+        ? weekStartStr
+        : tab === "evening"
+          ? eveningDateStr
+          : todayStr;
     await saveReport(tab, contents[tab]);
     await fetch("/api/reports", {
       method: "PATCH",
@@ -361,7 +379,7 @@ export default function MainPage() {
           const resultUrl = resultMatch?.[1] ?? "";
           const updated = renderTemplate(
             template.content,
-            buildEveningVars(today, goalUrl, resultUrl)
+            buildEveningVars(eveningDate, goalUrl, resultUrl)
           );
           // 既存の結果URLを保持しつつ目標URLを更新
           const withResult = resultUrl
@@ -378,7 +396,12 @@ export default function MainPage() {
   };
 
   const handleReset = async (tab: Tab) => {
-    const reportDate = tab === "weekly" ? weekStartStr : todayStr;
+    const reportDate =
+      tab === "weekly"
+        ? weekStartStr
+        : tab === "evening"
+          ? eveningDateStr
+          : todayStr;
     // 保存済みを消して再生成
     await fetch("/api/reports", {
       method: "POST",
