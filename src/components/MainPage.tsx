@@ -106,6 +106,7 @@ export default function MainPage() {
     date: string;
     minutes: number;
   } | null>(null);
+  const [overtimeRemoveBusy, setOvertimeRemoveBusy] = useState(false);
 
   const today = getTodayJST();
   const todayStr = toDateString(today);
@@ -543,7 +544,7 @@ export default function MainPage() {
                     現在: {Math.floor(overtimeMonthlyMinutes / 60)}時間{overtimeMonthlyMinutes % 60 > 0 ? `${overtimeMonthlyMinutes % 60}分` : ""}
                   </span>
                 </p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 mb-2">
                   <input
                     type="text"
                     value={overtimeSeedInput}
@@ -575,6 +576,28 @@ export default function MainPage() {
                     {overtimeSeedSaving ? "設定中..." : "設定"}
                   </button>
                 </div>
+                <button
+                  disabled={overtimeRemoveBusy}
+                  onClick={async () => {
+                    if (!confirm("直近2日分のコピー済み残業時間を累計から差し引きますか？")) return;
+                    setOvertimeRemoveBusy(true);
+                    const monthStr = todayStr.slice(0, 7);
+                    const res = await fetch("/api/overtime/monthly", {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ month: monthStr, days: 2 }),
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setOvertimeMonthlyMinutes(data.total_minutes);
+                      await generateTab("overtime");
+                    }
+                    setOvertimeRemoveBusy(false);
+                  }}
+                  className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                >
+                  {overtimeRemoveBusy ? "処理中..." : "直近2日分のコピーを取り消す"}
+                </button>
               </div>
             )}
           </div>
