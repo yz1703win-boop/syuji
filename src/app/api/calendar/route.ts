@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getRefreshToken } from "@/lib/db";
-import { CalendarEvent, DayKey, WeeklyCalendar } from "@/types";
+import { DayKey, WeeklyCalendar } from "@/types";
 
 const DAY_KEYS: DayKey[] = [
   "monday",
@@ -9,22 +9,41 @@ const DAY_KEYS: DayKey[] = [
   "wednesday",
   "thursday",
   "friday",
+  "saturday",
+  "sunday",
 ];
 
-/** 日付文字列 "YYYY-MM-DD" から曜日キーを返す（月〜金のみ） */
+const WEEKEND_KEYS: DayKey[] = ["saturday", "sunday"];
+
+const LEAVE_KEYWORDS = [
+  "振休",
+  "有休",
+  "有給",
+  "代休",
+  "休暇",
+  "休日",
+  "休み",
+  "公休",
+  "全休",
+  "特休",
+];
+
+/** 日付文字列 "YYYY-MM-DD" から曜日キーを返す */
 function getDayKeyFromDate(dateStr: string): DayKey | null {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const day = new Date(y, m - 1, d).getDay();
-  if (day >= 1 && day <= 5) return DAY_KEYS[day - 1];
-  return null;
+  if (!y || !m || !d) return null;
+  const day = new Date(y, m - 1, d).getDay(); // 0=日
+  if (day === 0) return "sunday";
+  return DAY_KEYS[day - 1];
 }
 
-/** ISO 日時文字列を JST に換算して曜日キーを返す（月〜金のみ） */
+/** ISO 日時文字列を JST に換算して曜日キーを返す */
 function getDayKeyFromDateTime(isoString: string): DayKey | null {
   const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return null;
   const jstDay = new Date(d.getTime() + 9 * 60 * 60 * 1000).getUTCDay();
-  if (jstDay >= 1 && jstDay <= 5) return DAY_KEYS[jstDay - 1];
-  return null;
+  if (jstDay === 0) return "sunday";
+  return DAY_KEYS[jstDay - 1];
 }
 
 /** 祝日カレンダーかどうかを判定 */
@@ -37,13 +56,53 @@ function isHolidayCalendar(id: string, name: string): boolean {
   );
 }
 
+/** 休日出勤（出勤扱いに上書き） */
+function isWorkdayOverride(name: string): boolean {
+  return name.includes("休日出勤");
+}
+
+/** お休みを示唆するタイトルか（「休日出勤」は除く） */
+function isLeaveTitle(name: string): boolean {
+  if (isWorkdayOverride(name)) return false;
+  return LEAVE_KEYWORDS.some((k) => name.includes(k));
+}
+
+/** 時刻付き予定用: 「有休」「振休」などマーカーそのものに近いタイトルだけ */
+function isLeaveMarkerTitle(name: string): boolean {
+  if (isWorkdayOverride(name)) return false;
+  const t = name.replace(/\s+/g, "");
+  return LEAVE_KEYWORDS.some(
+    (k) =>
+      t === k ||
+      t === `${k}日` ||
+      t === `終日${k}` ||
+      t.startsWith(`${k}（`) ||
+      t.startsWith(`${k}(`)
+  );
+}
+
 const EMPTY_HOLIDAYS: Record<DayKey, boolean> = {
   monday: false,
   tuesday: false,
   wednesday: false,
   thursday: false,
   friday: false,
+  saturday: true,
+  sunday: true,
 };
+
+function emptyWeekly(): WeeklyCalendar {
+  return {
+    monday: [],
+    tuesday: [],
+    wednesday: [],
+    thursday: [],
+    friday: [],
+    saturday: [],
+    sunday: [],
+    holidays: { ...EMPTY_HOLIDAYS },
+  };
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -55,19 +114,12 @@ export async function GET(req: NextRequest) {
 
   const refreshToken = await getRefreshToken().catch(() => null);
   if (!refreshToken) {
-    return NextResponse.json({
-      monday: [],
-      tuesday: [],
-      wednesday: [],
-      thursday: [],
-      friday: [],
-      holidays: { ...EMPTY_HOLIDAYS },
-    } as WeeklyCalendar);
+    return NextResponse.json(emptyWeekly());
   }
 
-  const startDate = new Date(weekStart);
-  const endDate = new Date(weekStart);
-  endDate.setDate(endDate.getDate() + 5);
+  // 月曜 00:00 JST 〜 翌月曜 00:00 JST（土日含む）
+  const timeMin = new Date(`${weekStart}T00:00:00+09:00`);
+  const timeMax = new Date(timeMin.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID!,
@@ -81,15 +133,7 @@ export async function GET(req: NextRequest) {
     const calendarList = await calendar.calendarList.list();
     const calendars = calendarList.data.items ?? [];
 
-    const weekly: WeeklyCalendar = {
-      monday: [],
-      tuesday: [],
-      wednesday: [],
-      thursday: [],
-      friday: [],
-      holidays: { ...EMPTY_HOLIDAYS },
-    };
-
+    const weekly = emptyWeekly();
     const holidayDays = new Set<DayKey>();
     const holidayOverrideDays = new Set<DayKey>();
 
@@ -100,40 +144,47 @@ export async function GET(req: NextRequest) {
       try {
         const res = await calendar.events.list({
           calendarId: cal.id,
-          timeMin: startDate.toISOString(),
-          timeMax: endDate.toISOString(),
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
           singleEvents: true,
           orderBy: "startTime",
         });
 
         for (const item of res.data.items ?? []) {
-          if (!item.summary) continue;
           const isAllDay = !!item.start?.date && !item.start?.dateTime;
-          const name = item.summary;
+          const name = item.summary ?? "";
+          const isOutOfOffice = item.eventType === "outOfOffice";
 
-          if (isAllDay) {
-            // 終日イベント: 祝日判定
-            const dayKey = getDayKeyFromDate(item.start?.date ?? "");
-            if (dayKey) {
-              if (name.includes("休日出勤")) {
-                // 休日出勤 → 出勤扱い（祝日を上書き）
-                holidayOverrideDays.add(dayKey);
-              } else if (
-                calIsHoliday ||
-                name.includes("休日") ||
-                name === "休み"
-              ) {
-                // 祝日カレンダー or 「休日」イベント → 休み
-                holidayDays.add(dayKey);
-              }
+          // タイトル無しは基本スキップ（外出中だけは休み判定に使う）
+          if (!name && !isOutOfOffice) continue;
+
+          if (isAllDay || isOutOfOffice) {
+            const dayKey = isAllDay
+              ? getDayKeyFromDate(item.start?.date ?? "")
+              : getDayKeyFromDateTime(
+                  item.start?.dateTime ?? item.start?.date ?? ""
+                );
+            if (!dayKey) continue;
+
+            if (name && isWorkdayOverride(name)) {
+              holidayOverrideDays.add(dayKey);
+            } else if (calIsHoliday || isOutOfOffice || isLeaveTitle(name)) {
+              holidayDays.add(dayKey);
             }
-            // 終日予定はタスク一覧には追加しない
+            // 終日・外出中はタスク一覧には入れない
             continue;
           }
 
           // 通常イベント: 曜日ごとに振り分け
           const dayKey = getDayKeyFromDateTime(item.start?.dateTime ?? "");
           if (!dayKey) continue;
+
+          if (isWorkdayOverride(name)) {
+            holidayOverrideDays.add(dayKey);
+          } else if (isLeaveMarkerTitle(name)) {
+            // 時刻付きでも「有休」「振休」等のマーカーならその日を休みに
+            holidayDays.add(dayKey);
+          }
 
           weekly[dayKey].push({
             id: item.id ?? "",
@@ -148,10 +199,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 「休日出勤」があれば祝日フラグを取り消す
+    // 平日: 祝日/休暇フラグ。土日: デフォルト休み。「休日出勤」で出勤上書き
     for (const dayKey of DAY_KEYS) {
+      const isWeekend = WEEKEND_KEYS.includes(dayKey);
       weekly.holidays[dayKey] =
-        holidayDays.has(dayKey) && !holidayOverrideDays.has(dayKey);
+        (isWeekend || holidayDays.has(dayKey)) &&
+        !holidayOverrideDays.has(dayKey);
     }
 
     return NextResponse.json(weekly);

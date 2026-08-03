@@ -76,14 +76,22 @@ function getJSTHour(isoString: string): number {
   return (d.getUTCHours() + 9) % 24;
 }
 
-/** 「趣味」「私用」「飯」「飯系」「風呂」「18時以降の移動」を除外 */
+/** 「趣味」「私用」「飯」「飯系」「風呂」「休日出勤」「休暇マーカー」「18時以降の移動」を除外 */
 function shouldIncludeEvent(event: CalendarEvent): boolean {
   const name = event.summary;
   if (
     name.includes("趣味") ||
     name.includes("私用") ||
     name.includes("飯") ||
-    name.includes("風呂")
+    name.includes("風呂") ||
+    name.includes("休日出勤") ||
+    name.includes("振休") ||
+    name.includes("有休") ||
+    name.includes("有給") ||
+    name.includes("代休") ||
+    name.includes("公休") ||
+    name.includes("全休") ||
+    name.includes("特休")
   )
     return false;
   if (!event.allDay && name.includes("移動")) {
@@ -112,16 +120,47 @@ export function formatEventsForTaskList(
   return filtered.map((e) => `・${e.summary}`).join("\n");
 }
 
-/** タスク別所要時間セクション全体を生成する（休日の曜日は除外） */
-export function buildTaskTimeSummary(calendar: WeeklyCalendar): string {
-  const DAY_KEYS: DayKey[] = [
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
+const WEEKDAY_KEYS: DayKey[] = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+];
+
+const ALL_DAY_KEYS: DayKey[] = [
+  ...WEEKDAY_KEYS,
+  "saturday",
+  "sunday",
+];
+
+/** 休日出勤がある土日のタスク目標ブロック（無ければ空文字） */
+export function buildWeekendWorkSections(
+  weekStart: Date,
+  calendar: WeeklyCalendar
+): string {
+  const parts: string[] = [];
+  const weekend: { key: DayKey; offset: number }[] = [
+    { key: "saturday", offset: 5 },
+    { key: "sunday", offset: 6 },
   ];
-  const allEvents = DAY_KEYS.filter((k) => !calendar.holidays[k])
+
+  for (const { key, offset } of weekend) {
+    // 土日はデフォルト休み。休日出勤で holidays=false のときだけ出す
+    if (calendar.holidays[key]) continue;
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + offset);
+    parts.push(
+      `〇${formatShortDate(d)}\n${formatEventsForTaskList(calendar[key], false)}`
+    );
+  }
+
+  return parts.length > 0 ? `\n${parts.join("\n\n")}\n` : "";
+}
+
+/** タスク別所要時間セクション全体を生成する（休日の曜日は除外。休日出勤の土日は含む） */
+export function buildTaskTimeSummary(calendar: WeeklyCalendar): string {
+  const allEvents = ALL_DAY_KEYS.filter((k) => !calendar.holidays[k])
     .flatMap((k) => calendar[k])
     .filter(shouldIncludeEvent);
 
@@ -175,10 +214,24 @@ export function renderTemplate(
   template: string,
   vars: Record<string, string>
 ): string {
-  return Object.entries(vars).reduce(
+  const hasWeekendPlaceholder = template.includes("{{weekend_work_sections}}");
+  let result = Object.entries(vars).reduce(
     (str, [key, val]) => str.replaceAll(`{{${key}}}`, val),
     template
   );
+
+  // 旧テンプレートにプレースホルダが無い場合、土日休日出勤を金曜の後へ挿入
+  const weekend = vars.weekend_work_sections?.trim() ?? "";
+  if (!hasWeekendPlaceholder && weekend) {
+    const marker = /^(▼[^\n]*タスク別所要時間)/m;
+    if (marker.test(result)) {
+      result = result.replace(marker, `${vars.weekend_work_sections}\n$1`);
+    } else {
+      result = `${result.trimEnd()}\n${vars.weekend_work_sections}`;
+    }
+  }
+
+  return result;
 }
 
 export function buildMorningVars(
@@ -279,6 +332,7 @@ export function buildWeeklyVars(
     wednesday_events: formatEventsForTaskList(calendar.wednesday, calendar.holidays.wednesday),
     thursday_events: formatEventsForTaskList(calendar.thursday, calendar.holidays.thursday),
     friday_events: formatEventsForTaskList(calendar.friday, calendar.holidays.friday),
+    weekend_work_sections: buildWeekendWorkSections(weekStart, calendar),
     week_range: weekRange,
     task_time_section: buildTaskTimeSummary(calendar),
   };

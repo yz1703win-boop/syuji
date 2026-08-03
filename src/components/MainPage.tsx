@@ -55,12 +55,16 @@ const EMPTY_CALENDAR: WeeklyCalendar = {
   wednesday: [],
   thursday: [],
   friday: [],
+  saturday: [],
+  sunday: [],
   holidays: {
     monday: false,
     tuesday: false,
     wednesday: false,
     thursday: false,
     friday: false,
+    saturday: true,
+    sunday: true,
   },
 };
 
@@ -141,7 +145,7 @@ export default function MainPage() {
 
   useEffect(() => {
     if (status === "loading") return;
-    generateTab(activeTab);
+    generateTab(activeTab, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, status]);
 
@@ -180,7 +184,7 @@ export default function MainPage() {
   );
 
   const generateTab = useCallback(
-    async (tab: Tab) => {
+    async (tab: Tab, forceRefresh = false) => {
       setLoadingTab(tab);
       setScheduleError(null);
       try {
@@ -191,8 +195,8 @@ export default function MainPage() {
               ? eveningDateStr
               : todayStr;
 
-        // overtime タブはカレンダーから毎回最新データを生成（保存済みは使わない）
-        if (tab !== "overtime") {
+        // overtime / 強制再生成以外は保存済みを優先
+        if (tab !== "overtime" && !forceRefresh) {
           const saved = await fetch(
             `/api/reports?type=${tab}&date=${reportDate}`
           ).then((r) => r.json());
@@ -264,6 +268,7 @@ export default function MainPage() {
           );
 
           setContents((prev) => ({ ...prev, [tab]: rendered }));
+          await saveReport(tab, rendered);
         } else if (tab === "overtime") {
           // 当日18時以降のイベント取得と今月合計をカレンダーから取得
           setCalendarLoading(true);
@@ -313,7 +318,7 @@ export default function MainPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayStr, weekStartStr, applyScheduleUrl]
+    [todayStr, weekStartStr, applyScheduleUrl, saveReport]
   );
 
   const handleChange = (tab: Tab, value: string) => {
@@ -403,7 +408,7 @@ export default function MainPage() {
         : tab === "evening"
           ? eveningDateStr
           : todayStr;
-    // 保存済みを消して再生成
+    // 保存済みを消してカレンダーから強制再生成
     await fetch("/api/reports", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -415,7 +420,7 @@ export default function MainPage() {
       }),
     });
     setContents((prev) => ({ ...prev, [tab]: "" }));
-    await generateTab(tab);
+    await generateTab(tab, true);
   };
 
   const handleRegenerateSchedule = async () => {

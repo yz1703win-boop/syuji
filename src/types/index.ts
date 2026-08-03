@@ -26,7 +26,14 @@ export interface CalendarEvent {
   allDay: boolean;
 }
 
-export type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
+export type DayKey =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
 
 export interface WeeklyCalendar {
   monday: CalendarEvent[];
@@ -34,6 +41,8 @@ export interface WeeklyCalendar {
   wednesday: CalendarEvent[];
   thursday: CalendarEvent[];
   friday: CalendarEvent[];
-  /** true の曜日はその日を「休み」として扱う */
+  saturday: CalendarEvent[];
+  sunday: CalendarEvent[];
+  /** true の曜日はその日を「休み」として扱う（土日はデフォルト true） */
   holidays: Record<DayKey, boolean>;
 }
