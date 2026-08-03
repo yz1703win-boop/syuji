@@ -166,7 +166,7 @@ const DEFAULT_WEEKLY_TEMPLATE = `{{header}}
 
 〇{{friday_date}}
 {{friday_events}}
-{{weekend_work_sections}}
+
 ▼{{week_range}}タスク別所要時間
 {{task_time_section}}
 

@@ -111,11 +111,11 @@ function getEventDurationMinutes(event: CalendarEvent): number {
 
 /** ▼タスク目標用：タスク名のみ（時刻なし）のリスト。休日は「休み」 */
 export function formatEventsForTaskList(
-  events: CalendarEvent[],
+  events: CalendarEvent[] | undefined,
   isHoliday: boolean
 ): string {
   if (isHoliday) return "休み";
-  const filtered = events.filter(shouldIncludeEvent);
+  const filtered = (events ?? []).filter(shouldIncludeEvent);
   if (filtered.length === 0) return "（予定なし）";
   return filtered.map((e) => `・${e.summary}`).join("\n");
 }
@@ -214,24 +214,10 @@ export function renderTemplate(
   template: string,
   vars: Record<string, string>
 ): string {
-  const hasWeekendPlaceholder = template.includes("{{weekend_work_sections}}");
-  let result = Object.entries(vars).reduce(
+  return Object.entries(vars).reduce(
     (str, [key, val]) => str.replaceAll(`{{${key}}}`, val),
     template
   );
-
-  // 旧テンプレートにプレースホルダが無い場合、土日休日出勤を金曜の後へ挿入
-  const weekend = vars.weekend_work_sections?.trim() ?? "";
-  if (!hasWeekendPlaceholder && weekend) {
-    const marker = /^(▼[^\n]*タスク別所要時間)/m;
-    if (marker.test(result)) {
-      result = result.replace(marker, `${vars.weekend_work_sections}\n$1`);
-    } else {
-      result = `${result.trimEnd()}\n${vars.weekend_work_sections}`;
-    }
-  }
-
-  return result;
 }
 
 export function buildMorningVars(
@@ -314,6 +300,8 @@ export function buildWeeklyVars(
   const { prev_action_change, prev_week_tasks } =
     extractPrevWeekSections(prevWeekContent);
   const weekRange = `${weekStart.getMonth() + 1}/${weekStart.getDate()}(月)～${weekEnd.getMonth() + 1}/${weekEnd.getDate()}(金)`;
+  // 既存DBテンプレートに {{weekend_work_sections}} が無くても出るよう、金曜の直後へ連結する
+  const weekendSections = buildWeekendWorkSections(weekStart, calendar);
 
   return {
     header: "",
@@ -331,8 +319,10 @@ export function buildWeeklyVars(
     tuesday_events: formatEventsForTaskList(calendar.tuesday, calendar.holidays.tuesday),
     wednesday_events: formatEventsForTaskList(calendar.wednesday, calendar.holidays.wednesday),
     thursday_events: formatEventsForTaskList(calendar.thursday, calendar.holidays.thursday),
-    friday_events: formatEventsForTaskList(calendar.friday, calendar.holidays.friday),
-    weekend_work_sections: buildWeekendWorkSections(weekStart, calendar),
+    friday_events:
+      formatEventsForTaskList(calendar.friday, calendar.holidays.friday) +
+      weekendSections,
+    weekend_work_sections: weekendSections,
     week_range: weekRange,
     task_time_section: buildTaskTimeSummary(calendar),
   };

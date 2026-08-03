@@ -32,7 +32,8 @@ const LEAVE_KEYWORDS = [
 function getDayKeyFromDate(dateStr: string): DayKey | null {
   const [y, m, d] = dateStr.split("-").map(Number);
   if (!y || !m || !d) return null;
-  const day = new Date(y, m - 1, d).getDay(); // 0=日
+  // UTC正午で曜日判定（サーバーTZに依存しない）
+  const day = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay(); // 0=日
   if (day === 0) return "sunday";
   return DAY_KEYS[day - 1];
 }
