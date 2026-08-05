@@ -126,11 +126,15 @@ const DEFAULT_EVENING_TEMPLATE = `━━━━━━━━━━━━━━━�
 ￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣
 `;
 
-const DEFAULT_WEEKLY_TEMPLATE = `{{header}}
+const DEFAULT_WEEKLY_TEMPLATE = `[To:3393402]藤原直樹(ばび～)さん
 
-{{greeting}}
+お疲れ様です。
+
 週次タスクを提出させていただきます。
 何卒宜しくお願い致します。
+
+▼週次数値シート
+https://docs.google.com/spreadsheets/d/1iiZU5v42Dlzm27c5SlDf_719Mm5D3YfhgsPWkL9aGbQ/edit?gid=1729377483#gid=1729377483
 
 [info]１）先週の結果
 ▼先週の行動変化

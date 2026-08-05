@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Check, Copy, ImagePlus, RotateCcw, Settings } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ImagePlus,
+  RotateCcw,
+  Settings,
+  Undo2,
+} from "lucide-react";
 
 interface EditorProps {
   value: string;
@@ -10,6 +17,9 @@ interface EditorProps {
   onReset?: () => void;
   onOpenSettings?: () => void;
   onRegenerateSchedule?: () => void;
+  onTogglePreviousDay?: () => void;
+  usePreviousDay?: boolean;
+  previousDayLabel?: string;
   isSaving?: boolean;
   isCopied?: boolean;
   isScheduleLoading?: boolean;
@@ -25,6 +35,9 @@ export default function ReportEditor({
   onReset,
   onOpenSettings,
   onRegenerateSchedule,
+  onTogglePreviousDay,
+  usePreviousDay,
+  previousDayLabel,
   isSaving,
   isCopied,
   isScheduleLoading,
@@ -50,12 +63,33 @@ export default function ReportEditor({
           日程画像の生成に失敗しました: {scheduleError}
         </div>
       )}
+      {usePreviousDay && previousDayLabel && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          前日モード: {previousDayLabel} の日報・日程画像を表示しています
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-gray-400">
           {isSaving && <span>保存中...</span>}
           {isScheduleLoading && <span>日程画像を生成中...</span>}
+          {!usePreviousDay && previousDayLabel && (
+            <span>対象日: {previousDayLabel}</span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onTogglePreviousDay && (
+            <button
+              onClick={onTogglePreviousDay}
+              className={`flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                usePreviousDay
+                  ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              <Undo2 size={12} />
+              {usePreviousDay ? "通常の日付に戻す" : "前日に戻す"}
+            </button>
+          )}
           {showScheduleButton && onRegenerateSchedule && (
             <button
               onClick={onRegenerateSchedule}

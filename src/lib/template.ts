@@ -20,6 +20,13 @@ export function getEveningDateJST(): Date {
   return base;
 }
 
+/** 日付を日数分ずらす（元の Date は変更しない） */
+export function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 export function formatDate(date: Date): string {
   const m = date.getMonth() + 1;
   const d = date.getDate();
@@ -133,6 +140,19 @@ const ALL_DAY_KEYS: DayKey[] = [
   "saturday",
   "sunday",
 ];
+
+/** 週の期間表示（月〜金。休日出勤の土日があればそこまで伸ばす） */
+export function buildWeekRange(
+  weekStart: Date,
+  calendar: WeeklyCalendar
+): string {
+  let endOffset = 4; // 金曜
+  if (!calendar.holidays.saturday) endOffset = 5;
+  if (!calendar.holidays.sunday) endOffset = 6;
+  const end = new Date(weekStart);
+  end.setDate(weekStart.getDate() + endOffset);
+  return `${formatShortDate(weekStart)}～${formatShortDate(end)}`;
+}
 
 /** 休日出勤がある土日のタスク目標ブロック（無ければ空文字） */
 export function buildWeekendWorkSections(
@@ -296,16 +316,13 @@ export function buildWeeklyVars(
   prevWeekContent?: string
 ): Record<string, string> {
   const days = getWeekDays(weekStart);
-  const weekEnd = days[4];
   const { prev_action_change, prev_week_tasks } =
     extractPrevWeekSections(prevWeekContent);
-  const weekRange = `${weekStart.getMonth() + 1}/${weekStart.getDate()}(月)～${weekEnd.getMonth() + 1}/${weekEnd.getDate()}(金)`;
+  const weekRange = buildWeekRange(weekStart, calendar);
   // 既存DBテンプレートに {{weekend_work_sections}} が無くても出るよう、金曜の直後へ連結する
   const weekendSections = buildWeekendWorkSections(weekStart, calendar);
 
   return {
-    header: "",
-    greeting: "",
     prev_action_change,
     prev_week_tasks,
     diff: "特になし",

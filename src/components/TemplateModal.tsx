@@ -24,7 +24,7 @@ const PLACEHOLDERS: Record<string, string[]> = {
     "{{date}} — 今週月曜の日付",
     "{{monday_date}} 〜 {{friday_date}} — 各曜日の日付",
     "{{monday_events}} 〜 {{friday_events}} — Googleカレンダーの予定",
-    "{{week_range}} — 週の期間（例: 7/20(月)～7/24(金)）",
+    "{{week_range}} — 週の期間（例: 7/20(月)～7/24(金)。休日出勤があればそこまで）",
     "{{prev_action_change}} — 前週の行動変化",
     "{{prev_week_tasks}} — 前週のタスク目標",
   ],

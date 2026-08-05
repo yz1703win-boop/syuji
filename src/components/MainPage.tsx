@@ -7,6 +7,7 @@ import ReportEditor from "@/components/ReportEditor";
 import TemplateModal from "@/components/TemplateModal";
 import PrevWeekPanel from "@/components/PrevWeekPanel";
 import {
+  addDays,
   buildEveningVars,
   buildMorningVars,
   buildOvertimeVars,
@@ -111,10 +112,17 @@ export default function MainPage() {
     minutes: number;
   } | null>(null);
   const [overtimeRemoveBusy, setOvertimeRemoveBusy] = useState(false);
+  /** 始業・終業の日付を1日戻す（7時過ぎて前日分を書く用） */
+  const [usePreviousDay, setUsePreviousDay] = useState(false);
 
   const today = getTodayJST();
+  const baseEveningDate = getEveningDateJST();
+  const morningDate = usePreviousDay ? addDays(today, -1) : today;
+  const eveningDate = usePreviousDay
+    ? addDays(baseEveningDate, -1)
+    : baseEveningDate;
   const todayStr = toDateString(today);
-  const eveningDate = getEveningDateJST();
+  const morningDateStr = toDateString(morningDate);
   const eveningDateStr = toDateString(eveningDate);
   const weekStart = getWeekStart(today);
   const weekStartStr = toDateString(weekStart);
@@ -128,7 +136,9 @@ export default function MainPage() {
           ? weekStartStr
           : tab === "evening"
             ? eveningDateStr
-            : todayStr;
+            : tab === "morning"
+              ? morningDateStr
+              : todayStr;
       await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,14 +150,14 @@ export default function MainPage() {
         }),
       });
     },
-    [todayStr, eveningDateStr, weekStartStr]
+    [todayStr, morningDateStr, eveningDateStr, weekStartStr]
   );
 
   useEffect(() => {
     if (status === "loading") return;
     generateTab(activeTab, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, status]);
+  }, [activeTab, status, usePreviousDay]);
 
   useEffect(() => {
     if (activeTab !== "weekly") return;
@@ -158,11 +168,11 @@ export default function MainPage() {
   }, [activeTab, weekStartStr]);
 
   const applyScheduleUrl = useCallback(
-    async (tab: "morning" | "evening", baseContent: string) => {
+    async (tab: "morning" | "evening", baseContent: string, dateStr: string) => {
       setScheduleLoading(true);
       setScheduleError(null);
       try {
-        const url = await fetchScheduleUrl(tab, todayStr);
+        const url = await fetchScheduleUrl(tab, dateStr);
         const updated =
           tab === "morning"
             ? upsertMorningScheduleUrl(baseContent, url)
@@ -180,7 +190,7 @@ export default function MainPage() {
         setScheduleLoading(false);
       }
     },
-    [saveReport, todayStr]
+    [saveReport]
   );
 
   const generateTab = useCallback(
@@ -193,7 +203,9 @@ export default function MainPage() {
             ? weekStartStr
             : tab === "evening"
               ? eveningDateStr
-              : todayStr;
+              : tab === "morning"
+                ? morningDateStr
+                : todayStr;
 
         // overtime / 強制再生成以外は保存済みを優先
         if (tab !== "overtime" && !forceRefresh) {
@@ -217,11 +229,11 @@ export default function MainPage() {
         if (tab === "morning") {
           rendered = renderTemplate(
             template.content,
-            buildMorningVars(today, "")
+            buildMorningVars(morningDate, "")
           );
           setContents((prev) => ({ ...prev, morning: rendered }));
           setLoadingTab(null);
-          await applyScheduleUrl("morning", rendered);
+          await applyScheduleUrl("morning", rendered, morningDateStr);
           return;
         }
 
@@ -239,7 +251,7 @@ export default function MainPage() {
           );
           setContents((prev) => ({ ...prev, evening: rendered }));
           setLoadingTab(null);
-          await applyScheduleUrl("evening", rendered);
+          await applyScheduleUrl("evening", rendered, eveningDateStr);
           return;
         }
 
@@ -318,7 +330,7 @@ export default function MainPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayStr, weekStartStr, applyScheduleUrl, saveReport]
+    [todayStr, morningDateStr, eveningDateStr, weekStartStr, morningDate, eveningDate, applyScheduleUrl, saveReport]
   );
 
   const handleChange = (tab: Tab, value: string) => {
@@ -339,7 +351,9 @@ export default function MainPage() {
         ? weekStartStr
         : tab === "evening"
           ? eveningDateStr
-          : todayStr;
+          : tab === "morning"
+            ? morningDateStr
+            : todayStr;
     await saveReport(tab, contents[tab]);
     await fetch("/api/reports", {
       method: "PATCH",
@@ -407,7 +421,9 @@ export default function MainPage() {
         ? weekStartStr
         : tab === "evening"
           ? eveningDateStr
-          : todayStr;
+          : tab === "morning"
+            ? morningDateStr
+            : todayStr;
     // 保存済みを消してカレンダーから強制再生成
     await fetch("/api/reports", {
       method: "POST",
@@ -427,7 +443,13 @@ export default function MainPage() {
     if (activeTab !== "morning" && activeTab !== "evening") return;
     const base = contents[activeTab];
     if (!base) return;
-    await applyScheduleUrl(activeTab, base);
+    const dateStr =
+      activeTab === "evening" ? eveningDateStr : morningDateStr;
+    await applyScheduleUrl(activeTab, base, dateStr);
+  };
+
+  const handleTogglePreviousDay = () => {
+    setUsePreviousDay((prev) => !prev);
   };
 
   if (status === "loading") {
@@ -538,6 +560,19 @@ export default function MainPage() {
               onReset={() => handleReset(activeTab)}
               onOpenSettings={() => setTemplateModalTab(activeTab)}
               onRegenerateSchedule={handleRegenerateSchedule}
+              onTogglePreviousDay={
+                activeTab === "morning" || activeTab === "evening"
+                  ? handleTogglePreviousDay
+                  : undefined
+              }
+              usePreviousDay={usePreviousDay}
+              previousDayLabel={
+                activeTab === "evening"
+                  ? formatDateJP(eveningDateStr)
+                  : activeTab === "morning"
+                    ? formatDateJP(morningDateStr)
+                    : undefined
+              }
               showScheduleButton={
                 activeTab === "morning" || activeTab === "evening"
               }
