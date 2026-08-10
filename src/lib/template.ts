@@ -356,14 +356,14 @@ export function extractPrevWeekSections(content?: string): {
     };
   }
 
-  // ３）行動変化 セクションを抽出
+  // ３）行動変化 — 空欄時に \n+ が区切り改行を食わないよう lookahead は改行なし
   const actionMatch = content.match(
-    /３）行動変化[^\n]*\n+([\s\S]*?)(?=\n４）|\n５）|$)/
+    /３）行動変化[^\n]*\n+([\s\S]*?)(?=４）|５）|$)/
   );
 
-  // ▼タスク目標 セクションを抽出（▼タスク別 または ５）まで）
+  // ▼タスク目標 — 同上（▼タスク別所要時間 / ５）まで）
   const tasksMatch = content.match(
-    /▼タスク目標\n+([\s\S]*?)(?=\n▼\d|＝＝|５）|$)/
+    /▼タスク目標\n+([\s\S]*?)(?=▼\d|＝＝|５）|$)/
   );
 
   return {
