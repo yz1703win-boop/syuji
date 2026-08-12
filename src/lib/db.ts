@@ -53,6 +53,16 @@ export async function initDb() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS schedule_plans (
+      report_date DATE PRIMARY KEY,
+      plan_json TEXT NOT NULL,
+      window_start_min INTEGER NOT NULL,
+      window_end_min INTEGER NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
   // デフォルトテンプレートを挿入（存在しない場合のみ）
   await sql`
     INSERT INTO templates (type, content) VALUES
@@ -62,6 +72,59 @@ export async function initDb() {
     ('overtime', ${DEFAULT_OVERTIME_TEMPLATE})
     ON CONFLICT (type) DO NOTHING
   `;
+}
+
+async function ensureSchedulePlansTable() {
+  const sql = getDb();
+  await sql`
+    CREATE TABLE IF NOT EXISTS schedule_plans (
+      report_date DATE PRIMARY KEY,
+      plan_json TEXT NOT NULL,
+      window_start_min INTEGER NOT NULL,
+      window_end_min INTEGER NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+}
+
+export async function saveMorningSchedulePlan(
+  reportDate: string,
+  planJson: string,
+  windowStartMin: number,
+  windowEndMin: number
+) {
+  await ensureSchedulePlansTable();
+  const sql = getDb();
+  await sql`
+    INSERT INTO schedule_plans (report_date, plan_json, window_start_min, window_end_min, updated_at)
+    VALUES (${reportDate}, ${planJson}, ${windowStartMin}, ${windowEndMin}, NOW())
+    ON CONFLICT (report_date) DO UPDATE SET
+      plan_json = EXCLUDED.plan_json,
+      window_start_min = EXCLUDED.window_start_min,
+      window_end_min = EXCLUDED.window_end_min,
+      updated_at = NOW()
+  `;
+}
+
+export async function getMorningSchedulePlan(reportDate: string): Promise<{
+  planJson: string;
+  windowStartMin: number;
+  windowEndMin: number;
+} | null> {
+  await ensureSchedulePlansTable();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT plan_json, window_start_min, window_end_min
+    FROM schedule_plans
+    WHERE report_date = ${reportDate}
+    LIMIT 1
+  `;
+  if (!rows[0]) return null;
+  return {
+    planJson: rows[0].plan_json as string,
+    windowStartMin: Number(rows[0].window_start_min),
+    windowEndMin: Number(rows[0].window_end_min),
+  };
 }
 
 export async function resetTemplates() {

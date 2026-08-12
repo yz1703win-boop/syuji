@@ -90,38 +90,61 @@ function addToSlot(map: Map<number, string>, slotMin: number, title: string) {
   map.set(slotMin, prev ? `${prev}\n${title}` : title);
 }
 
+export function serializeSlotMap(map: Map<number, string>): string {
+  return JSON.stringify(Object.fromEntries(map));
+}
+
+export function deserializeSlotMap(json: string): Map<number, string> {
+  const obj = JSON.parse(json) as Record<string, string>;
+  return new Map(
+    Object.entries(obj).map(([k, v]) => [Number(k), v] as [number, string])
+  );
+}
+
+export interface BuildScheduleSlotsOptions {
+  /** 始業時に保存した「今日の予定」。終業の左列に使う */
+  planOverride?: Map<number, string>;
+  windowOverride?: TimeWindow;
+}
+
 /**
  * 今日の予定・実際の進行スロットを構築する。
  * - 終日はマスに出さない（窓判定専用）
  * - 始業: progress は空
- * - 終業: progress は生成時刻までの予定
+ * - 終業: progress は22時（または勤務窓終端）まで。planOverride があれば左列に優先
  */
 export function buildScheduleSlots(
   events: CalendarEvent[],
   mode: ScheduleMode,
-  generatedAt: Date = new Date()
+  options?: BuildScheduleSlotsOptions
 ): ScheduleSlots {
-  const window = computeTimeWindow(events);
-  const plan = new Map<number, string>();
+  const liveWindow = computeTimeWindow(events);
+  const window = options?.windowOverride ?? liveWindow;
+  const plan = options?.planOverride
+    ? new Map(options.planOverride)
+    : new Map<number, string>();
   const progress = new Map<number, string>();
 
-  const jstNow = new Date(
-    generatedAt.getTime() + 9 * 60 * 60 * 1000
-  );
-  const nowMin = jstNow.getUTCHours() * 60 + jstNow.getUTCMinutes();
-  const progressEnd = Math.min(nowMin, HARD_END_MIN, window.endMin);
+  // 終業は常に当日22時（勤務窓終端）までの実績。深夜に前日分を書く場合も now に引きずられない
+  const progressEnd = Math.min(HARD_END_MIN, liveWindow.endMin);
+  const progressWindow = liveWindow;
 
   for (const event of events) {
     if (event.allDay) continue;
     if (!shouldIncludeScheduleEvent(event)) continue;
 
     const startMin = floorTo15(getJSTMinutesOfDay(event.start));
-    if (!inWindow(startMin, window)) continue;
     if (startMin >= HARD_END_MIN) continue;
 
-    addToSlot(plan, startMin, event.summary);
+    if (!options?.planOverride && inWindow(startMin, window)) {
+      addToSlot(plan, startMin, event.summary);
+    }
 
-    if (mode === "evening" && startMin <= progressEnd) {
+    if (
+      mode === "evening" &&
+      inWindow(startMin, progressWindow) &&
+      startMin <= progressEnd
+    ) {
       addToSlot(progress, startMin, event.summary);
     }
   }
