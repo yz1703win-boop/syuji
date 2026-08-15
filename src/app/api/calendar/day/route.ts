@@ -3,16 +3,27 @@ import { google } from "googleapis";
 import { getRefreshToken } from "@/lib/db";
 import { shouldIncludeOvertimeEvent, OvertimeEvent } from "@/lib/template";
 
-/** UTC の ISO 文字列から JST の時間（0〜23）を返す */
-function getJSTHour(isoString: string): number {
-  return (new Date(isoString).getUTCHours() + 9) % 24;
+const OVERTIME_START_MIN = 18 * 60;
+
+/** UTC の ISO 文字列から JST の「その日の分」を返す */
+function getJSTMinutesOfDay(isoString: string): number {
+  const d = new Date(isoString);
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return jst.getUTCHours() * 60 + jst.getUTCMinutes();
 }
 
-/** イベント所要時間（分）を返す */
-function getDurationMinutes(start: string, end: string): number {
-  return Math.round(
-    (new Date(end).getTime() - new Date(start).getTime()) / 60000
-  );
+/**
+ * 18時以降に重なる分数を返す。
+ * 例: 17:00–19:00 → 60（18:00–19:00）
+ */
+function getOvertimeMinutes(startIso: string, endIso: string): number {
+  const startMin = getJSTMinutesOfDay(startIso);
+  let endMin = getJSTMinutesOfDay(endIso);
+  if (endMin <= startMin) endMin += 24 * 60;
+
+  const overtimeStart = Math.max(startMin, OVERTIME_START_MIN);
+  const duration = endMin - overtimeStart;
+  return duration > 0 ? Math.round(duration) : 0;
 }
 
 export async function GET(req: NextRequest) {
@@ -60,14 +71,10 @@ export async function GET(req: NextRequest) {
         for (const item of res.data.items ?? []) {
           if (!item.summary || !item.start?.dateTime) continue;
 
-          const startHour = getJSTHour(item.start.dateTime);
-          // 18時以降のイベントのみ
-          if (startHour < 18) continue;
-
           const name = item.summary;
           if (!shouldIncludeOvertimeEvent(name)) continue;
 
-          const duration = getDurationMinutes(
+          const duration = getOvertimeMinutes(
             item.start.dateTime,
             item.end?.dateTime ?? item.start.dateTime
           );

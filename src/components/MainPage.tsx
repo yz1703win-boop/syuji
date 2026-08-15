@@ -134,7 +134,7 @@ export default function MainPage() {
       const reportDate =
         tab === "weekly"
           ? weekStartStr
-          : tab === "evening"
+          : tab === "evening" || tab === "overtime"
             ? eveningDateStr
             : tab === "morning"
               ? morningDateStr
@@ -201,7 +201,7 @@ export default function MainPage() {
         const reportDate =
           tab === "weekly"
             ? weekStartStr
-            : tab === "evening"
+            : tab === "evening" || tab === "overtime"
               ? eveningDateStr
               : tab === "morning"
                 ? morningDateStr
@@ -282,11 +282,13 @@ export default function MainPage() {
           setContents((prev) => ({ ...prev, [tab]: rendered }));
           await saveReport(tab, rendered);
         } else if (tab === "overtime") {
-          // 当日18時以降のイベント取得と今月合計をカレンダーから取得
+          // 終業日と同じ日付（0〜6時は前日）の18時以降を取得
           setCalendarLoading(true);
           let overtimeEvents: OvertimeEvent[] = [];
           try {
-            const calRes = await fetch(`/api/calendar/day?date=${todayStr}`);
+            const calRes = await fetch(
+              `/api/calendar/day?date=${eveningDateStr}`
+            );
             if (calRes.ok) {
               const data = await calRes.json();
               overtimeEvents = data.events ?? [];
@@ -296,7 +298,7 @@ export default function MainPage() {
           }
 
           // 今月の残業合計 + 前回申請情報を並行取得
-          const monthStr = todayStr.slice(0, 7);
+          const monthStr = eveningDateStr.slice(0, 7);
           let currentMonthMinutes = 0;
           try {
             const [monthRes, lastRes] = await Promise.all([
@@ -349,7 +351,7 @@ export default function MainPage() {
     const reportDate =
       tab === "weekly"
         ? weekStartStr
-        : tab === "evening"
+        : tab === "evening" || tab === "overtime"
           ? eveningDateStr
           : tab === "morning"
             ? morningDateStr
@@ -365,7 +367,7 @@ export default function MainPage() {
     if (tab === "overtime") {
       const addMinutes = parseOvertimeMinutes(contents.overtime);
       if (addMinutes > 0) {
-        const monthStr = todayStr.slice(0, 7);
+        const monthStr = eveningDateStr.slice(0, 7);
         await Promise.all([
           fetch("/api/overtime/monthly", {
             method: "POST",
@@ -375,11 +377,11 @@ export default function MainPage() {
           fetch("/api/overtime/last", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ date: todayStr, minutes: addMinutes }),
+            body: JSON.stringify({ date: eveningDateStr, minutes: addMinutes }),
           }),
         ]);
         setOvertimeMonthlyMinutes((prev) => prev + addMinutes);
-        setOvertimeLastApplied({ date: todayStr, minutes: addMinutes });
+        setOvertimeLastApplied({ date: eveningDateStr, minutes: addMinutes });
       }
     }
 
@@ -419,7 +421,7 @@ export default function MainPage() {
     const reportDate =
       tab === "weekly"
         ? weekStartStr
-        : tab === "evening"
+        : tab === "evening" || tab === "overtime"
           ? eveningDateStr
           : tab === "morning"
             ? morningDateStr

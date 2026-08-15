@@ -116,7 +116,7 @@ export async function getMorningSchedulePlan(reportDate: string): Promise<{
   const rows = await sql`
     SELECT plan_json, window_start_min, window_end_min
     FROM schedule_plans
-    WHERE report_date = ${reportDate}
+    WHERE report_date = ${reportDate}::date
     LIMIT 1
   `;
   if (!rows[0]) return null;

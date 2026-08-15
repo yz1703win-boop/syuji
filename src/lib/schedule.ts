@@ -85,6 +85,28 @@ function inWindow(startMin: number, window: TimeWindow): boolean {
   return startMin >= window.startMin && startMin < window.endMin;
 }
 
+/** イベント終了（分）。日付跨ぎは +24h して開始より後にする */
+function getEventEndMin(event: CalendarEvent, startMin: number): number {
+  const endMin = getJSTMinutesOfDay(event.end);
+  return endMin <= startMin ? endMin + 24 * 60 : endMin;
+}
+
+/**
+ * 勤務窓と重なる予定の表示開始マス。
+ * 9時前開始でも窓開始（通常9:00）から表示する。
+ */
+function clippedDisplayStart(
+  startMin: number,
+  endMin: number,
+  window: TimeWindow
+): number | null {
+  if (endMin <= window.startMin) return null;
+  if (startMin >= window.endMin) return null;
+  const clipped = Math.max(startMin, window.startMin);
+  if (clipped >= window.endMin) return null;
+  return clipped;
+}
+
 function addToSlot(map: Map<number, string>, slotMin: number, title: string) {
   const prev = map.get(slotMin);
   map.set(slotMin, prev ? `${prev}\n${title}` : title);
@@ -110,8 +132,9 @@ export interface BuildScheduleSlotsOptions {
 /**
  * 今日の予定・実際の進行スロットを構築する。
  * - 終日はマスに出さない（窓判定専用）
- * - 始業: progress は空
- * - 終業: progress は22時（または勤務窓終端）まで。planOverride があれば左列に優先
+ * - 始業: progress は空。窓より前開始の予定は窓開始マスに表示
+ * - 終業: 左列は planOverride（始業時スナップショット）のみ。ライブ予定では埋めない
+ *         progress は22時（または勤務窓終端）まで。窓より前開始も窓開始から表示
  */
 export function buildScheduleSlots(
   events: CalendarEvent[],
@@ -133,19 +156,32 @@ export function buildScheduleSlots(
     if (event.allDay) continue;
     if (!shouldIncludeScheduleEvent(event)) continue;
 
-    const startMin = floorTo15(getJSTMinutesOfDay(event.start));
-    if (startMin >= HARD_END_MIN) continue;
+    const rawStartMin = floorTo15(getJSTMinutesOfDay(event.start));
+    if (rawStartMin >= HARD_END_MIN) continue;
 
-    if (!options?.planOverride && inWindow(startMin, window)) {
-      addToSlot(plan, startMin, event.summary);
+    const endMin = getEventEndMin(event, rawStartMin);
+
+    // 始業の「今日の予定」のみライブから構築。終業の左列は DB スナップショット専用
+    if (mode === "morning" && !options?.planOverride) {
+      const planStart = clippedDisplayStart(rawStartMin, endMin, window);
+      if (planStart !== null) {
+        addToSlot(plan, planStart, event.summary);
+      }
     }
 
-    if (
-      mode === "evening" &&
-      inWindow(startMin, progressWindow) &&
-      startMin <= progressEnd
-    ) {
-      addToSlot(progress, startMin, event.summary);
+    if (mode === "evening") {
+      const progStart = clippedDisplayStart(
+        rawStartMin,
+        endMin,
+        progressWindow
+      );
+      if (
+        progStart !== null &&
+        progStart <= progressEnd &&
+        inWindow(progStart, progressWindow)
+      ) {
+        addToSlot(progress, progStart, event.summary);
+      }
     }
   }
 

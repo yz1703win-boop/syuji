@@ -12,7 +12,11 @@ import {
   serializeSlotMap,
 } from "@/lib/schedule";
 import { renderSchedulePng } from "@/lib/schedule-image";
-import { getTodayJST, toDateString } from "@/lib/template";
+import {
+  getEveningDateJST,
+  getTodayJST,
+  toDateString,
+} from "@/lib/template";
 
 export const runtime = "nodejs";
 
@@ -30,7 +34,9 @@ export async function POST(req: NextRequest) {
     const dateStr =
       typeof body.date === "string" && body.date
         ? body.date
-        : toDateString(getTodayJST());
+        : toDateString(
+            mode === "evening" ? getEveningDateJST() : getTodayJST()
+          );
 
     const events = await fetchDayEvents(dateStr);
 
@@ -52,7 +58,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 終業: 左列は始業時の予定、右列は当日カレンダーの22時までの実績
+    // 終業: 左列は始業時に DB 保存した予定のみ、右列は当日カレンダーの22時までの実績
+    // （ライブ予定で左列を埋めると「今日の予定＝実際の進行」になるため禁止）
     const saved = await getMorningSchedulePlan(dateStr);
     const slots = buildScheduleSlots(
       events,
