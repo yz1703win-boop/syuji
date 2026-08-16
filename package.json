@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:tabs": "tsx scripts/verify-tab-logic.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -25,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

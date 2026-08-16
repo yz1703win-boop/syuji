@@ -20,6 +20,16 @@
 - **認証**: NextAuth.js v5 (Google OAuth)
 - **カレンダー**: Google Calendar API
 
+## 4タブ検証
+
+始業 / 終業 / 週次 / 残業のロジックスモーク:
+
+```bash
+npm run verify:tabs
+```
+
+Cursor では「4タブ確認」「タブ検証」などと依頼すると、`.cursor/skills/verify-tabs` がタブごとにサブエージェントを並列起動して確認します。
+
 ## セットアップ
 
 ### 1. 環境変数を設定
