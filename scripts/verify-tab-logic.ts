@@ -7,6 +7,7 @@ import { buildScheduleSlots } from "../src/lib/schedule";
 import { getOvertimeMinutes } from "../src/lib/overtime-calc";
 import {
   addDays,
+  buildOvertimeVars,
   getEveningDateJST,
   getTodayJST,
   getWeekStart,
@@ -127,9 +128,39 @@ function check(name: string, ok: boolean, detail?: string) {
     shouldIncludeOvertimeEvent("移動 渋谷") === false
   );
   check(
+    "overtime: 除外ワード「私用」（完全一致）",
+    shouldIncludeOvertimeEvent("私用") === false
+  );
+  check(
+    "overtime: 除外ワード「私用」（部分一致）",
+    shouldIncludeOvertimeEvent("私用・買い物") === false
+  );
+  check(
+    "overtime: 除外ワード「趣味」（部分一致）",
+    shouldIncludeOvertimeEvent("趣味：ゲーム") === false
+  );
+  check(
     "overtime: 通常タスクは含む",
     shouldIncludeOvertimeEvent("実装レビュー") === true
   );
+  // 私用・趣味を除いたイベントだけで残業合計が組まれること
+  {
+    const mixed = [
+      { summary: "実装レビュー", durationMinutes: 60 },
+      { summary: "デプロイ", durationMinutes: 30 },
+      { summary: "私用（事業）", durationMinutes: 45 },
+      { summary: "趣味：ゲーム", durationMinutes: 90 },
+    ];
+    // API側フィルタを通さず buildOvertimeVars に直接渡しても除外されること
+    const vars = buildOvertimeVars(mixed, 0);
+    check(
+      "overtime: 私用（事業）・趣味は合計・一覧から除外",
+      vars.today_overtime === "1時間30分" &&
+        !vars.overtime_tasks.includes("私用") &&
+        !vars.overtime_tasks.includes("趣味") &&
+        vars.overtime_tasks.includes("実装レビュー")
+    );
+  }
 }
 
 // ─── weekly: 週開始（月曜起点） ───

@@ -54,7 +54,7 @@
 | O1 | 取得日付は `eveningDateStr`（0〜6時は前日。終業と同一） |
 | O2 | `getOvertimeMinutes`: 18時前開始でも 18時以降の重なり分だけ計上（17–19 → 60） |
 | O3 | 18時前に終わるタスクは 0（申請に出ない） |
-| O4 | 除外ワード（移動・趣味・課題・飯・風呂）は `shouldIncludeOvertimeEvent` |
+| O4 | 除外ワード（移動・趣味・私用・課題・飯・風呂）は `shouldIncludeOvertimeEvent` |
 | O5 | `buildOvertimeVars` が今月合計・本日残業・タスク一覧を生成 |
 | O6 | コピー時に月次加算・last 保存の日付も `eveningDateStr` |
 | O7 | 保存・リセットの report_date も overtime は evening 日付 |

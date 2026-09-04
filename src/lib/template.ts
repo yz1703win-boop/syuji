@@ -380,9 +380,9 @@ export function extractGoalUrls(morningContent: string): string {
 
 // ─── 残業申請ヘルパー ────────────────────────────────────────
 
-const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "課題", "飯", "風呂"];
+const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "私用", "課題", "飯", "風呂"];
 
-/** 残業申請に含めないイベントを除外 */
+/** 残業申請に含めないイベントを除外（件名の部分一致）。除外分は時間合計にも含めない */
 export function shouldIncludeOvertimeEvent(eventName: string): boolean {
   return !OVERTIME_EXCLUDE_WORDS.some((w) => eventName.includes(w));
 }
@@ -431,19 +431,22 @@ export interface OvertimeEvent {
   durationMinutes: number;
 }
 
-/** 残業申請テンプレート変数を生成 */
+/** 残業申請テンプレート変数を生成（私用・趣味などは一覧からも時間合計からも除外） */
 export function buildOvertimeVars(
   overtimeEvents: OvertimeEvent[],
   currentMonthMinutes: number
 ): Record<string, string> {
-  const totalMinutes = overtimeEvents.reduce(
+  const included = overtimeEvents.filter((e) =>
+    shouldIncludeOvertimeEvent(e.summary)
+  );
+  const totalMinutes = included.reduce(
     (sum, e) => sum + e.durationMinutes,
     0
   );
 
   const tasks =
-    overtimeEvents.length > 0
-      ? overtimeEvents.map((e) => `${e.summary}(${e.durationMinutes})`).join("\n")
+    included.length > 0
+      ? included.map((e) => `${e.summary}(${e.durationMinutes})`).join("\n")
       : "なし";
 
   return {
