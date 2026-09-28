@@ -116,7 +116,7 @@ function getEventDurationMinutes(event: CalendarEvent): number {
   return mins > 0 ? mins : 0;
 }
 
-/** ▼タスク目標用：タスク名のみ（時刻なし）のリスト。休日は「休み」 */
+/** ▼タスク目標用：タスク名＋所要時間のリスト。休日は「休み」 */
 export function formatEventsForTaskList(
   events: CalendarEvent[] | undefined,
   isHoliday: boolean
@@ -124,7 +124,12 @@ export function formatEventsForTaskList(
   if (isHoliday) return "休み";
   const filtered = (events ?? []).filter(shouldIncludeEvent);
   if (filtered.length === 0) return "（予定なし）";
-  return filtered.map((e) => `・${e.summary}`).join("\n");
+  return filtered
+    .map((e) => {
+      const duration = getEventDurationMinutes(e);
+      return duration > 0 ? `・${e.summary}（${duration}）` : `・${e.summary}`;
+    })
+    .join("\n");
 }
 
 const WEEKDAY_KEYS: DayKey[] = [
