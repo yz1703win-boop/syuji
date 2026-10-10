@@ -45,26 +45,60 @@ export function shouldIncludeScheduleEvent(event: CalendarEvent): boolean {
   return true;
 }
 
+/** この予定の開始以降は、日報・残業申請に載せない */
+export function isPersonalOrTravelCutoff(summary: string): boolean {
+  return summary.includes("私用") || summary.includes("移動");
+}
+
+/**
+ * 時刻付きの私用・移動のうち、最も早い開始（分）。
+ * これ以降に始まるタスクは日報・残業申請から外す。
+ */
+export function personalOrTravelCutoffMin(
+  events: Pick<CalendarEvent, "summary" | "start" | "allDay">[]
+): number | null {
+  let cutoff: number | null = null;
+  for (const event of events) {
+    if (event.allDay || !event.start) continue;
+    if (!isPersonalOrTravelCutoff(event.summary)) continue;
+    const startMin = getJSTMinutesOfDay(event.start);
+    if (cutoff === null || startMin < cutoff) cutoff = startMin;
+  }
+  return cutoff;
+}
+
 function parseFlexHours(summary: string, kind: "早フレ" | "遅フレ"): number {
   if (!summary.includes(kind)) return 0;
   const m = summary.match(new RegExp(`${kind}\\s*(\\d+)\\s*時間`));
   return m ? parseInt(m[1], 10) : 0;
 }
 
-/** 終日予定からフレックス／半休マーカーを読み、取り込み窓を計算 */
+/**
+ * 終日予定からフレックス／半休マーカーを読み、取り込み窓を計算。
+ * 「早フレ」（時間なしは1時間）の日だけ、半休でなければ 8:00（2時間なら 7:00）〜22:00。
+ * 「終日」だけでは 9:00 開始のまま。
+ */
 export function computeTimeWindow(events: CalendarEvent[]): TimeWindow {
   let earlyHours = 0;
   let lateHours = 0;
   let amLeave = false;
   let pmLeave = false;
+  let bareEarlyFlex = false;
 
   for (const e of events) {
     if (!e.allDay) continue;
     const s = e.summary;
-    earlyHours = Math.max(earlyHours, parseFlexHours(s, "早フレ"));
+    const parsedEarly = parseFlexHours(s, "早フレ");
+    earlyHours = Math.max(earlyHours, parsedEarly);
+    if (s.includes("早フレ") && parsedEarly === 0) bareEarlyFlex = true;
     lateHours = Math.max(lateHours, parseFlexHours(s, "遅フレ"));
     if (s.includes("午前休")) amLeave = true;
     if (s.includes("午後休")) pmLeave = true;
+  }
+
+  // 時間指定のない早フレは1時間（8時開始）。「終日」では早めない
+  if (!amLeave && !pmLeave && bareEarlyFlex) {
+    earlyHours = Math.max(earlyHours, 1);
   }
 
   const flexOffset = lateHours * 60 - earlyHours * 60;
@@ -93,7 +127,7 @@ function getEventEndMin(event: CalendarEvent, startMin: number): number {
 
 /**
  * 勤務窓と重なる予定の表示開始マス。
- * 9時前開始でも窓開始（通常9:00）から表示する。
+ * 窓より前の開始は窓開始（通常9:00。早フレは8:00）から表示する。
  */
 function clippedDisplayStart(
   startMin: number,
@@ -151,12 +185,16 @@ export function buildScheduleSlots(
   // 終業は常に当日22時（勤務窓終端）までの実績。深夜に前日分を書く場合も now に引きずられない
   const progressEnd = Math.min(HARD_END_MIN, liveWindow.endMin);
   const progressWindow = liveWindow;
+  const cutoffMin = personalOrTravelCutoffMin(events);
 
   for (const event of events) {
     if (event.allDay) continue;
     if (!shouldIncludeScheduleEvent(event)) continue;
 
-    const rawStartMin = floorTo15(getJSTMinutesOfDay(event.start));
+    const startMinExact = getJSTMinutesOfDay(event.start);
+    if (cutoffMin !== null && startMinExact >= cutoffMin) continue;
+
+    const rawStartMin = floorTo15(startMinExact);
     if (rawStartMin >= HARD_END_MIN) continue;
 
     const endMin = getEventEndMin(event, rawStartMin);

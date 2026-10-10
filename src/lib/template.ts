@@ -1,3 +1,8 @@
+import { getOvertimeMinutes } from "@/lib/overtime-calc";
+import {
+  getJSTMinutesOfDay,
+  personalOrTravelCutoffMin,
+} from "@/lib/schedule";
 import { CalendarEvent, DayKey, WeeklyCalendar } from "@/types";
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
@@ -83,7 +88,12 @@ function getJSTHour(isoString: string): number {
   return (d.getUTCHours() + 9) % 24;
 }
 
-/** 「趣味」「私用」「飯」「飯系」「風呂」「休日出勤」「休暇マーカー」「18時以降の移動」を除外 */
+/** 休日出勤・休出は、その日を勤務日にするマーカー（タスク一覧には出さない） */
+export function isHolidayWorkTitle(name: string): boolean {
+  return name.includes("休日出勤") || name.includes("休出");
+}
+
+/** 「趣味」「私用」「飯」「飯系」「風呂」「休出・休日出勤」「休暇マーカー」「18時以降の移動」を除外 */
 function shouldIncludeEvent(event: CalendarEvent): boolean {
   const name = event.summary;
   if (
@@ -91,7 +101,7 @@ function shouldIncludeEvent(event: CalendarEvent): boolean {
     name.includes("私用") ||
     name.includes("飯") ||
     name.includes("風呂") ||
-    name.includes("休日出勤") ||
+    isHolidayWorkTitle(name) ||
     name.includes("振休") ||
     name.includes("有休") ||
     name.includes("有給") ||
@@ -146,7 +156,7 @@ const ALL_DAY_KEYS: DayKey[] = [
   "sunday",
 ];
 
-/** 週の期間表示（月〜金。休日出勤の土日があればそこまで伸ばす） */
+/** 週の期間表示（月〜金。休出・休日出勤の土日があればそこまで伸ばす） */
 export function buildWeekRange(
   weekStart: Date,
   calendar: WeeklyCalendar
@@ -159,7 +169,7 @@ export function buildWeekRange(
   return `${formatShortDate(weekStart)}～${formatShortDate(end)}`;
 }
 
-/** 休日出勤がある土日のタスク目標ブロック（無ければ空文字） */
+/** 休出・休日出勤がある土日のタスク目標ブロック（無ければ空文字） */
 export function buildWeekendWorkSections(
   weekStart: Date,
   calendar: WeeklyCalendar
@@ -171,7 +181,7 @@ export function buildWeekendWorkSections(
   ];
 
   for (const { key, offset } of weekend) {
-    // 土日はデフォルト休み。休日出勤で holidays=false のときだけ出す
+    // 土日はデフォルト休み。休出・休日出勤で holidays=false のときだけ出す
     if (calendar.holidays[key]) continue;
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + offset);
@@ -183,7 +193,7 @@ export function buildWeekendWorkSections(
   return parts.length > 0 ? `\n${parts.join("\n\n")}\n` : "";
 }
 
-/** タスク別所要時間セクション全体を生成する（休日の曜日は除外。休日出勤の土日は含む） */
+/** タスク別所要時間セクション全体を生成する（休日の曜日は除外。休出・休日出勤の土日は含む） */
 export function buildTaskTimeSummary(calendar: WeeklyCalendar): string {
   const allEvents = ALL_DAY_KEYS.filter((k) => !calendar.holidays[k])
     .flatMap((k) => calendar[k])
@@ -434,6 +444,34 @@ export function parseOvertimeSeedInput(input: string): number {
 export interface OvertimeEvent {
   summary: string;
   durationMinutes: number;
+}
+
+/**
+ * 残業申請に載せるイベント。
+ * 件名の除外に加え、私用・移動の開始以降に始まるタスクは含めない。
+ */
+export function selectOvertimeEvents(
+  events: Pick<CalendarEvent, "summary" | "start" | "end" | "allDay">[]
+): OvertimeEvent[] {
+  const cutoffMin = personalOrTravelCutoffMin(events);
+  const included: OvertimeEvent[] = [];
+
+  for (const event of events) {
+    if (event.allDay || !event.start) continue;
+    if (
+      cutoffMin !== null &&
+      getJSTMinutesOfDay(event.start) >= cutoffMin
+    ) {
+      continue;
+    }
+    if (!shouldIncludeOvertimeEvent(event.summary)) continue;
+
+    const duration = getOvertimeMinutes(event.start, event.end);
+    if (duration <= 0) continue;
+    included.push({ summary: event.summary, durationMinutes: duration });
+  }
+
+  return included;
 }
 
 /** 残業申請テンプレート変数を生成（私用・趣味などは一覧からも時間合計からも除外） */

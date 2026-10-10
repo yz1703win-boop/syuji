@@ -11,11 +11,11 @@
 | M1 | 日付は `getTodayJST` / `morningDateStr`（前日モード時は -1 日） |
 | M2 | テンプレ変数 `buildMorningVars`（`{{date}}` / `{{goal_url}}`） |
 | M3 | Gyazo 生成は `mode=morning`。`buildScheduleSlots(..., "morning")` で plan のみ埋まる |
-| M4 | 勤務窓より前開始の予定は窓開始（通常 9:00）マスに表示（`clippedDisplayStart`） |
+| M4 | 勤務窓より前開始の予定は窓開始マスに表示（通常 9:00。終日の「早フレ」がある日は 8:00。「終日」だけでは 9:00） |
 | M5 | 窓前に終了する予定は出ない |
 | M6 | `saveMorningSchedulePlan` で `schedule_plans` に plan / window を保存 |
 | M7 | `upsertMorningScheduleUrl` で本文に Gyazo URL が入る |
-| M8 | 趣味・私用、18時以降の移動は日程から除外（`shouldIncludeScheduleEvent`） |
+| M8 | 趣味・私用、18時以降の移動は日程から除外（`shouldIncludeScheduleEvent`）。私用・移動の開始以降に始まるタスクも出さない |
 
 ## evening（終業日報）
 
@@ -42,7 +42,7 @@
 | W2 | `/api/calendar?week_start=` で月〜金の予定を取得 |
 | W3 | `buildWeeklyVars` が曜日日付・予定・週範囲・前週セクションを埋める |
 | W4 | 前週コンテンツは `/api/reports/prev-week` |
-| W5 | 振休・有休・休日出勤の扱いがカレンダー組み立てと整合（該当コードがあること） |
+| W5 | 振休・有休・休日出勤・休出の扱いがカレンダー組み立てと整合（休出・休日出勤の日は勤務日。マーカー件名自体はタスク一覧に出さない） |
 | W6 | 保存キーは `weekStartStr` |
 
 ## overtime（残業申請）
@@ -54,7 +54,7 @@
 | O1 | 取得日付は `eveningDateStr`（0〜6時は前日。終業と同一） |
 | O2 | `getOvertimeMinutes`: 18時前開始でも 18時以降の重なり分だけ計上（17–19 → 60） |
 | O3 | 18時前に終わるタスクは 0（申請に出ない） |
-| O4 | 除外ワード（移動・趣味・私用・課題・飯・風呂）は `shouldIncludeOvertimeEvent` |
+| O4 | 除外ワード（移動・趣味・私用・課題・飯・風呂）は `shouldIncludeOvertimeEvent`。私用・移動の開始以降に始まるタスクも申請に含めない |
 | O5 | `buildOvertimeVars` が今月合計・本日残業・タスク一覧を生成 |
 | O6 | コピー時に月次加算・last 保存の日付も `eveningDateStr` |
 | O7 | 保存・リセットの report_date も overtime は evening 日付 |

@@ -3,18 +3,26 @@
  * 使い方: npm run verify:tabs
  * または: node --experimental-strip-types scripts/verify-tab-logic.ts
  */
-import { buildScheduleSlots } from "../src/lib/schedule";
+import {
+  buildScheduleSlots,
+  personalOrTravelCutoffMin,
+} from "../src/lib/schedule";
 import { getOvertimeMinutes } from "../src/lib/overtime-calc";
 import {
   addDays,
   buildOvertimeVars,
+  buildTaskTimeSummary,
+  buildWeekendWorkSections,
+  formatEventsForTaskList,
   getEveningDateJST,
   getTodayJST,
   getWeekStart,
+  isHolidayWorkTitle,
+  selectOvertimeEvents,
   shouldIncludeOvertimeEvent,
   toDateString,
 } from "../src/lib/template";
-import type { CalendarEvent } from "../src/types";
+import type { CalendarEvent, WeeklyCalendar } from "../src/types";
 
 type Case = { name: string; ok: boolean; detail?: string };
 
@@ -104,6 +112,100 @@ function check(name: string, ok: boolean, detail?: string) {
   );
 }
 
+// ─── 早フレだけ 8:00 開始。終日は 9:00 のまま ───
+{
+  const date = "2026-08-14";
+  const earlyOnly = [
+    ev("早フレ", `${date}`, `${date}`, true),
+    ev("8時タスク", jstIso(date, 8, 0), jstIso(date, 9, 0)),
+    ev("21時タスク", jstIso(date, 21, 0), jstIso(date, 22, 0)),
+    ev("7時タスク", jstIso(date, 7, 0), jstIso(date, 8, 0)),
+    ev("私用", jstIso(date, 21, 30), jstIso(date, 22, 0)),
+  ];
+  const slots = buildScheduleSlots(earlyOnly, "morning");
+  check(
+    "早フレ: 8時開始のタスクが8:00マスに出る",
+    slots.plan.get(8 * 60) === "8時タスク" && slots.window.startMin === 8 * 60
+  );
+  check(
+    "早フレ: 21時タスクは出る",
+    slots.plan.get(21 * 60) === "21時タスク"
+  );
+  check(
+    "早フレ: 8時前に終わるタスクは出ない",
+    ![...slots.plan.values()].includes("7時タスク")
+  );
+  check(
+    "早フレ: 私用そのものは出ない",
+    ![...slots.plan.values()].some((v) => v.includes("私用"))
+  );
+
+  const fullDay = [
+    ev("終日", `${date}`, `${date}`, true),
+    ev("8時だけ", jstIso(date, 8, 0), jstIso(date, 9, 0)),
+    ev("8時から続く", jstIso(date, 8, 0), jstIso(date, 10, 0)),
+  ];
+  const fullSlots = buildScheduleSlots(fullDay, "morning");
+  check(
+    "終日: 8時開始にはせず、8時前に終わるタスクは出ない",
+    fullSlots.window.startMin === 9 * 60 &&
+      !fullSlots.plan.has(8 * 60) &&
+      ![...fullSlots.plan.values()].includes("8時だけ") &&
+      fullSlots.plan.get(9 * 60) === "8時から続く"
+  );
+
+  const twoHour = [
+    ev("早フレ2時間", `${date}`, `${date}`, true),
+    ev("7時タスク", jstIso(date, 7, 0), jstIso(date, 8, 0)),
+  ];
+  const twoSlots = buildScheduleSlots(twoHour, "morning");
+  check(
+    "早フレ2時間: 7時タスクが出る",
+    twoSlots.window.startMin === 7 * 60 &&
+      twoSlots.plan.get(7 * 60) === "7時タスク"
+  );
+}
+
+// ─── 私用・移動の後のタスクは日報に出さない ───
+{
+  const date = "2026-08-14";
+  const events = [
+    ev("午前作業", jstIso(date, 10, 0), jstIso(date, 11, 0)),
+    ev("移動 帰宅", jstIso(date, 18, 0), jstIso(date, 18, 30)),
+    ev("夜の作業", jstIso(date, 19, 0), jstIso(date, 21, 0)),
+    ev("夕方作業", jstIso(date, 16, 0), jstIso(date, 17, 0)),
+  ];
+  const slots = buildScheduleSlots(events, "evening");
+  const progress = [...slots.progress.values()].join("\n");
+  check(
+    "日報: 移動より前のタスクは出る",
+    progress.includes("午前作業") && progress.includes("夕方作業")
+  );
+  check(
+    "日報: 移動の後のタスクは出ない",
+    !progress.includes("夜の作業") && !progress.includes("移動")
+  );
+  check(
+    "cutoff: 最も早い私用・移動の開始",
+    personalOrTravelCutoffMin(events) === 18 * 60
+  );
+
+  const earlierPersonal = [
+    ev("朝タスク", jstIso(date, 9, 0), jstIso(date, 10, 0)),
+    ev("私用", jstIso(date, 15, 0), jstIso(date, 16, 0)),
+    ev("私用の後", jstIso(date, 16, 0), jstIso(date, 18, 0)),
+    ev("夜残業", jstIso(date, 19, 0), jstIso(date, 21, 0)),
+  ];
+  const after = buildScheduleSlots(earlierPersonal, "morning");
+  check(
+    "日報: 私用の後のタスクは出ない",
+    after.plan.get(9 * 60) === "朝タスク" &&
+      ![...after.plan.values()].some(
+        (v) => v.includes("私用の後") || v.includes("夜残業")
+      )
+  );
+}
+
 // ─── overtime: 18時跨ぎは重なり分のみ ───
 {
   const date = "2026-08-14";
@@ -161,6 +263,22 @@ function check(name: string, ok: boolean, detail?: string) {
         vars.overtime_tasks.includes("実装レビュー")
     );
   }
+
+  const afterTravel = selectOvertimeEvents([
+    ev("夕方作業", jstIso(date, 17, 0), jstIso(date, 19, 0)),
+    ev("移動 帰宅", jstIso(date, 19, 0), jstIso(date, 19, 30)),
+    ev("夜の作業", jstIso(date, 20, 0), jstIso(date, 22, 0)),
+  ]);
+  check(
+    "overtime: 移動より前のタスクは重なり分だけ残る",
+    afterTravel.length === 1 &&
+      afterTravel[0].summary === "夕方作業" &&
+      afterTravel[0].durationMinutes === 60
+  );
+  check(
+    "overtime: 移動の後のタスクは含めない",
+    !afterTravel.some((e) => e.summary === "夜の作業")
+  );
 }
 
 // ─── weekly: 週開始（月曜起点） ───
@@ -175,6 +293,55 @@ function check(name: string, ok: boolean, detail?: string) {
     ws.getFullYear() === 2026 && ws.getMonth() === 7 && ws.getDate() === 10
   );
   void wed;
+}
+
+// ─── weekly: 休出の日は勤務日としてタスクと時間を出す ───
+{
+  const date = "2026-08-15"; // 土曜
+  check("weekly: 休出は勤務日マーカー", isHolidayWorkTitle("休出") === true);
+  check(
+    "weekly: 休日出勤も勤務日マーカー",
+    isHolidayWorkTitle("休日出勤") === true
+  );
+
+  const task = ev("モニター確認", jstIso(date, 10, 0), jstIso(date, 11, 30));
+  const marker = ev("休出", jstIso(date, 9, 0), jstIso(date, 18, 0));
+  const list = formatEventsForTaskList([marker, task], false);
+  check(
+    "weekly: 休出の日のタスクと分数が出て、休出自体は出ない",
+    list.includes("・モニター確認（90）") && !list.includes("休出")
+  );
+
+  const holidays = {
+    monday: false,
+    tuesday: false,
+    wednesday: false,
+    thursday: false,
+    friday: false,
+    saturday: false,
+    sunday: true,
+  };
+  const calendar: WeeklyCalendar = {
+    monday: [],
+    tuesday: [],
+    wednesday: [],
+    thursday: [],
+    friday: [],
+    saturday: [marker, task],
+    sunday: [],
+    holidays,
+  };
+  const weekStart = new Date(2026, 7, 10);
+  const weekend = buildWeekendWorkSections(weekStart, calendar);
+  check(
+    "weekly: 休出の土曜が週次タスク欄に出る",
+    weekend.includes("8/15(土)") && weekend.includes("・モニター確認（90）")
+  );
+  const summary = buildTaskTimeSummary(calendar);
+  check(
+    "weekly: 休出のタスク時間が所要時間に入る",
+    summary.includes("・モニター確認(90)") && !summary.includes("休出")
+  );
 }
 
 // ─── date helpers: evening は 7 時前に前日 ───

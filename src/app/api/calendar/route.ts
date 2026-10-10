@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getRefreshToken } from "@/lib/db";
+import { isHolidayWorkTitle } from "@/lib/template";
 import { DayKey, WeeklyCalendar } from "@/types";
 
 const DAY_KEYS: DayKey[] = [
@@ -57,9 +58,9 @@ function isHolidayCalendar(id: string, name: string): boolean {
   );
 }
 
-/** 休日出勤（出勤扱いに上書き） */
+/** 休日出勤・休出（出勤扱いに上書き） */
 function isWorkdayOverride(name: string): boolean {
-  return name.includes("休日出勤");
+  return isHolidayWorkTitle(name);
 }
 
 /** お休みを示唆するタイトルか（「休日出勤」は除く） */
@@ -200,7 +201,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 平日: 祝日/休暇フラグ。土日: デフォルト休み。「休日出勤」で出勤上書き
+    // 平日: 祝日/休暇フラグ。土日: デフォルト休み。「休日出勤」「休出」で出勤上書き
     for (const dayKey of DAY_KEYS) {
       const isWeekend = WEEKEND_KEYS.includes(dayKey);
       weekly.holidays[dayKey] =

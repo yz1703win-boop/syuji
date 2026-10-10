@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getRefreshToken } from "@/lib/db";
-import { getOvertimeMinutes } from "@/lib/overtime-calc";
-import { shouldIncludeOvertimeEvent, OvertimeEvent } from "@/lib/template";
+import {
+  selectOvertimeEvents,
+  OvertimeEvent,
+} from "@/lib/template";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -33,7 +35,12 @@ export async function GET(req: NextRequest) {
     const calendarList = await calendar.calendarList.list();
     const calendars = calendarList.data.items ?? [];
 
-    const overtimeEvents: OvertimeEvent[] = [];
+    const timed: {
+      summary: string;
+      start: string;
+      end: string;
+      allDay: boolean;
+    }[] = [];
 
     for (const cal of calendars) {
       if (!cal.id) continue;
@@ -48,22 +55,19 @@ export async function GET(req: NextRequest) {
 
         for (const item of res.data.items ?? []) {
           if (!item.summary || !item.start?.dateTime) continue;
-
-          const name = item.summary;
-          if (!shouldIncludeOvertimeEvent(name)) continue;
-
-          const duration = getOvertimeMinutes(
-            item.start.dateTime,
-            item.end?.dateTime ?? item.start.dateTime
-          );
-          if (duration <= 0) continue;
-
-          overtimeEvents.push({ summary: name, durationMinutes: duration });
+          timed.push({
+            summary: item.summary,
+            start: item.start.dateTime,
+            end: item.end?.dateTime ?? item.start.dateTime,
+            allDay: false,
+          });
         }
       } catch {
         // 個別カレンダーのエラーはスキップ
       }
     }
+
+    const overtimeEvents = selectOvertimeEvents(timed);
 
     return NextResponse.json({ events: overtimeEvents });
   } catch (e) {
