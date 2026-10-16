@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import {
+  allDayCoveredDates,
+  dateTimeCoveredDates,
+  datesWithinWeek,
+  dayKeyFromIsoDate,
+} from "@/lib/calendar-span";
 import { getRefreshToken } from "@/lib/db";
 import { isHolidayWorkTitle } from "@/lib/template";
 import { DayKey, WeeklyCalendar } from "@/types";
@@ -28,16 +34,6 @@ const LEAVE_KEYWORDS = [
   "全休",
   "特休",
 ];
-
-/** 日付文字列 "YYYY-MM-DD" から曜日キーを返す */
-function getDayKeyFromDate(dateStr: string): DayKey | null {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return null;
-  // UTC正午で曜日判定（サーバーTZに依存しない）
-  const day = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay(); // 0=日
-  if (day === 0) return "sunday";
-  return DAY_KEYS[day - 1];
-}
 
 /** ISO 日時文字列を JST に換算して曜日キーを返す */
 function getDayKeyFromDateTime(isoString: string): DayKey | null {
@@ -161,19 +157,25 @@ export async function GET(req: NextRequest) {
           if (!name && !isOutOfOffice) continue;
 
           if (isAllDay || isOutOfOffice) {
-            const dayKey = isAllDay
-              ? getDayKeyFromDate(item.start?.date ?? "")
-              : getDayKeyFromDateTime(
-                  item.start?.dateTime ?? item.start?.date ?? ""
+            // 複数日の終日・外出中は開始日だけでなく、重なる日すべてを休みにする
+            const covered = isAllDay
+              ? allDayCoveredDates(item.start?.date ?? "", item.end?.date)
+              : dateTimeCoveredDates(
+                  item.start?.dateTime ?? "",
+                  item.end?.dateTime ?? item.start?.dateTime ?? ""
                 );
-            if (!dayKey) continue;
+            const dayKeys = datesWithinWeek(covered, weekStart)
+              .map((date) => dayKeyFromIsoDate(date))
+              .filter((key): key is DayKey => key !== null);
 
-            if (name && isWorkdayOverride(name)) {
-              holidayOverrideDays.add(dayKey);
-            } else if (calIsHoliday || isOutOfOffice || isLeaveTitle(name)) {
-              holidayDays.add(dayKey);
+            for (const dayKey of dayKeys) {
+              if (name && isWorkdayOverride(name)) {
+                holidayOverrideDays.add(dayKey);
+              } else if (calIsHoliday || isOutOfOffice || isLeaveTitle(name)) {
+                holidayDays.add(dayKey);
+              }
             }
-            // 終日・外出中はタスク一覧には入れない
+            // 終日・外出中そのものはタスク一覧には入れない（各日の時刻付きタスクは残す）
             continue;
           }
 

@@ -9,10 +9,17 @@ import {
 } from "../src/lib/schedule";
 import { getOvertimeMinutes } from "../src/lib/overtime-calc";
 import {
+  allDayCoveredDates,
+  dateTimeCoveredDates,
+  datesWithinWeek,
+  dayKeyFromIsoDate,
+} from "../src/lib/calendar-span";
+import {
   addDays,
   buildOvertimeVars,
   buildTaskTimeSummary,
   buildWeekendWorkSections,
+  buildWeeklyVars,
   formatEventsForTaskList,
   getEveningDateJST,
   getTodayJST,
@@ -341,6 +348,89 @@ function check(name: string, ok: boolean, detail?: string) {
   check(
     "weekly: 休出のタスク時間が所要時間に入る",
     summary.includes("・モニター確認(90)") && !summary.includes("休出")
+  );
+}
+
+// ─── weekly: 複数日の終日有給は期間の全日を休みにし、タスクも出す ───
+{
+  const covered = allDayCoveredDates("2026-10-13", "2026-10-16");
+  const inWeek = datesWithinWeek(covered, "2026-10-12");
+  const keys = inWeek.map((d) => dayKeyFromIsoDate(d)).join(",");
+  check(
+    "weekly: 10/13-15の終日は13・14・15を覆う",
+    covered.join(",") === "2026-10-13,2026-10-14,2026-10-15" &&
+      keys === "tuesday,wednesday,thursday"
+  );
+
+  const ooo = dateTimeCoveredDates(
+    "2026-10-13T00:00:00+09:00",
+    "2026-10-16T00:00:00+09:00"
+  );
+  check(
+    "weekly: 複数日の外出中も終了日の前日まで",
+    ooo.join(",") === "2026-10-13,2026-10-14,2026-10-15"
+  );
+
+  const cross = datesWithinWeek(
+    allDayCoveredDates("2026-10-11", "2026-10-14"),
+    "2026-10-12"
+  );
+  check(
+    "weekly: 週をまたぐ終日は当週の日だけ",
+    cross.join(",") === "2026-10-12,2026-10-13"
+  );
+
+  const wedTask = ev(
+    "打ち合わせ",
+    jstIso("2026-10-14", 10, 0),
+    jstIso("2026-10-14", 11, 0)
+  );
+  const thuTask = ev(
+    "資料作成",
+    jstIso("2026-10-15", 13, 0),
+    jstIso("2026-10-15", 15, 0)
+  );
+  const leave = ev("有給", "2026-10-13", "2026-10-16", true);
+  const holidayList = formatEventsForTaskList([leave, wedTask], true);
+  check(
+    "weekly: 休みの日は「休み」とタスクを両方出す",
+    holidayList === "休み\n・打ち合わせ（60）" && !holidayList.includes("有給")
+  );
+  check(
+    "weekly: 休みで他タスクが無ければ「休み」のみ",
+    formatEventsForTaskList([leave], true) === "休み"
+  );
+
+  const holidays = {
+    monday: false,
+    tuesday: true,
+    wednesday: true,
+    thursday: true,
+    friday: false,
+    saturday: true,
+    sunday: true,
+  };
+  const calendar: WeeklyCalendar = {
+    monday: [],
+    tuesday: [leave],
+    wednesday: [wedTask],
+    thursday: [thuTask],
+    friday: [],
+    saturday: [],
+    sunday: [],
+    holidays,
+  };
+  const vars = buildWeeklyVars(new Date(2026, 9, 12), calendar);
+  check(
+    "weekly: 連続有給の14日・15日は休み表記でタスクも出る",
+    vars.tuesday_events === "休み" &&
+      vars.wednesday_events === "休み\n・打ち合わせ（60）" &&
+      vars.thursday_events === "休み\n・資料作成（120）"
+  );
+  const summary = buildTaskTimeSummary(calendar);
+  check(
+    "weekly: 休み期間のタスクは所要時間に入れない",
+    !summary.includes("打ち合わせ") && !summary.includes("資料作成")
   );
 }
 
