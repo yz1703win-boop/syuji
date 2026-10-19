@@ -351,7 +351,7 @@ function check(name: string, ok: boolean, detail?: string) {
   );
 }
 
-// ─── weekly: 複数日の終日有給は期間の全日を休みにし、タスクも出す ───
+// ─── weekly: 複数日の終日有給は期間の全日を「休み」だけにする ───
 {
   const covered = allDayCoveredDates("2026-10-13", "2026-10-16");
   const inWeek = datesWithinWeek(covered, "2026-10-12");
@@ -393,12 +393,8 @@ function check(name: string, ok: boolean, detail?: string) {
   const leave = ev("有給", "2026-10-13", "2026-10-16", true);
   const holidayList = formatEventsForTaskList([leave, wedTask], true);
   check(
-    "weekly: 休みの日は「休み」とタスクを両方出す",
-    holidayList === "休み\n・打ち合わせ（60）" && !holidayList.includes("有給")
-  );
-  check(
-    "weekly: 休みで他タスクが無ければ「休み」のみ",
-    formatEventsForTaskList([leave], true) === "休み"
+    "weekly: 休みの日はタスクを書かず「休み」のみ",
+    holidayList === "休み"
   );
 
   const holidays = {
@@ -422,10 +418,10 @@ function check(name: string, ok: boolean, detail?: string) {
   };
   const vars = buildWeeklyVars(new Date(2026, 9, 12), calendar);
   check(
-    "weekly: 連続有給の14日・15日は休み表記でタスクも出る",
+    "weekly: 連続有給の14日・15日は「休み」のみ",
     vars.tuesday_events === "休み" &&
-      vars.wednesday_events === "休み\n・打ち合わせ（60）" &&
-      vars.thursday_events === "休み\n・資料作成（120）"
+      vars.wednesday_events === "休み" &&
+      vars.thursday_events === "休み"
   );
   const summary = buildTaskTimeSummary(calendar);
   check(
