@@ -6,6 +6,7 @@
 import {
   buildScheduleSlots,
   personalOrTravelCutoffMin,
+  shouldIncludeScheduleEvent,
 } from "../src/lib/schedule";
 import { getOvertimeMinutes } from "../src/lib/overtime-calc";
 import {
@@ -250,6 +251,20 @@ function check(name: string, ok: boolean, detail?: string) {
     shouldIncludeOvertimeEvent("趣味：ゲーム") === false
   );
   check(
+    "overtime: 除外ワード「読書」「事業」",
+    shouldIncludeOvertimeEvent("読書") === false &&
+      shouldIncludeOvertimeEvent("事業記事作成①") === false
+  );
+  check(
+    "schedule: 読書と事業は日程に出ない",
+    shouldIncludeScheduleEvent(
+      ev("読書", jstIso("2026-10-22", 10, 0), jstIso("2026-10-22", 11, 0))
+    ) === false &&
+      shouldIncludeScheduleEvent(
+        ev("事業戦略立案", jstIso("2026-10-22", 11, 0), jstIso("2026-10-22", 12, 0))
+      ) === false
+  );
+  check(
     "overtime: 通常タスクは含む",
     shouldIncludeOvertimeEvent("実装レビュー") === true
   );
@@ -476,10 +491,51 @@ function check(name: string, ok: boolean, detail?: string) {
     stripped.includes("〇10/21(水)\n休み\n") &&
       !stripped.includes("〇10/21(水)\n休み\n・移動") &&
       stripped.includes("〇10/20(火)\n・ウィンテレ第3弾編集（60）") &&
-      stripped.includes("〇10/22(木)\n・読書（30）") &&
+      stripped.includes("〇10/22(木)\n（予定なし）") &&
+      !stripped.includes("読書") &&
+      !stripped.includes("事業") &&
       stripped.includes("５）目標達成のためにほしい権限") &&
-      !stripped.includes("・移動(30)") &&
       stripped.includes("・ウィンテレ第3弾編集(60)")
+  );
+
+  const mixed = formatEventsForTaskList(
+    [
+      ev("事業記事作成①", jstIso("2026-10-22", 9, 0), jstIso("2026-10-22", 10, 0)),
+      ev("読書", jstIso("2026-10-22", 10, 0), jstIso("2026-10-22", 11, 0)),
+      ev("編集", jstIso("2026-10-22", 11, 0), jstIso("2026-10-22", 12, 0)),
+    ],
+    false
+  );
+  check(
+    "weekly: 読書と事業は勤務日でもタスクに出ない",
+    mixed === "・編集（60）"
+  );
+  const mixedSummary = buildTaskTimeSummary({
+    monday: [],
+    tuesday: [],
+    wednesday: [],
+    thursday: [
+      ev("事業戦略立案", jstIso("2026-10-22", 13, 0), jstIso("2026-10-22", 14, 0)),
+      ev("編集", jstIso("2026-10-22", 11, 0), jstIso("2026-10-22", 12, 0)),
+    ],
+    friday: [],
+    saturday: [],
+    sunday: [],
+    holidays: {
+      monday: false,
+      tuesday: false,
+      wednesday: false,
+      thursday: false,
+      friday: false,
+      saturday: true,
+      sunday: true,
+    },
+  });
+  check(
+    "weekly: 読書と事業は所要時間に入らない",
+    mixedSummary.includes("・編集(60)") &&
+      !mixedSummary.includes("事業") &&
+      !mixedSummary.includes("読書")
   );
 }
 

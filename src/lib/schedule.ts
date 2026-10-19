@@ -35,10 +35,16 @@ export function floorTo15(minutes: number): number {
   return Math.floor(minutes / 15) * 15;
 }
 
-/** 「趣味」「私用」「18時以降の移動」を除外（部分一致） */
+/** 「趣味」「私用」「読書」「事業」「18時以降の移動」を除外（部分一致） */
 export function shouldIncludeScheduleEvent(event: CalendarEvent): boolean {
   const name = event.summary;
-  if (name.includes("趣味") || name.includes("私用")) return false;
+  if (
+    name.includes("趣味") ||
+    name.includes("私用") ||
+    name.includes("読書") ||
+    name.includes("事業")
+  )
+    return false;
   if (!event.allDay && name.includes("移動")) {
     if (getJSTMinutesOfDay(event.start) >= 18 * 60) return false;
   }

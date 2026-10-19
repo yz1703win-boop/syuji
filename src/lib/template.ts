@@ -93,10 +93,18 @@ export function isHolidayWorkTitle(name: string): boolean {
   return name.includes("休日出勤") || name.includes("休出");
 }
 
-/** 「趣味」「私用」「飯」「飯系」「風呂」「休出・休日出勤」「休暇マーカー」「18時以降の移動」を除外 */
+/** 週次・残業・日程のどれでもタスクにしない件名（部分一致） */
+const NON_TASK_WORDS = ["読書", "事業"];
+
+function isNonTaskTitle(name: string): boolean {
+  return NON_TASK_WORDS.some((word) => name.includes(word));
+}
+
+/** 「趣味」「私用」「飯」「飯系」「風呂」「読書」「事業」「休出・休日出勤」「休暇マーカー」「18時以降の移動」を除外 */
 function shouldIncludeEvent(event: CalendarEvent): boolean {
   const name = event.summary;
   if (
+    isNonTaskTitle(name) ||
     name.includes("趣味") ||
     name.includes("私用") ||
     name.includes("飯") ||
@@ -365,8 +373,8 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * 保存済み週次文面のうち、休日のタスク目標を「休み」だけにする。
- * 開いたときに前回保存分が残っていても、休日の予定一覧は出さない。
+ * 保存済み週次文面を直す。
+ * 休日は「休み」だけにし、読書・事業はどの曜日でもタスク行から外す。
  */
 export function stripTasksOnLeaveDays(
   content: string,
@@ -392,7 +400,19 @@ export function stripTasksOnLeaveDays(
     next = next.replace(re, "$1休み\n");
   }
 
-  if (!leaveWeekday) return next;
+  const withoutNonTasks = next
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("・")) return true;
+      return !isNonTaskTitle(trimmed);
+    })
+    .join("\n")
+    .replace(/(〇[^\n]+\n)[ \t]*\n(?=〇|▼)/g, "$1（予定なし）\n\n");
+  const removedNonTasks = withoutNonTasks !== next;
+  next = withoutNonTasks;
+
+  if (!leaveWeekday && !removedNonTasks) return content;
 
   const summary = buildTaskTimeSummary(calendar);
   const weekRange = buildWeekRange(weekStart, calendar);
@@ -437,7 +457,15 @@ export function extractGoalUrls(morningContent: string): string {
 
 // ─── 残業申請ヘルパー ────────────────────────────────────────
 
-const OVERTIME_EXCLUDE_WORDS = ["移動", "趣味", "私用", "課題", "飯", "風呂"];
+const OVERTIME_EXCLUDE_WORDS = [
+  "移動",
+  "趣味",
+  "私用",
+  "課題",
+  "飯",
+  "風呂",
+  ...NON_TASK_WORDS,
+];
 
 /** 残業申請に含めないイベントを除外（件名の部分一致）。除外分は時間合計にも含めない */
 export function shouldIncludeOvertimeEvent(eventName: string): boolean {
