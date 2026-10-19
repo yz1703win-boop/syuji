@@ -13,6 +13,7 @@ import {
   buildOvertimeVars,
   buildWeeklyVars,
   extractGoalUrls,
+  stripTasksOnLeaveDays,
   getEveningDateJST,
   getTodayJST,
   getWeekStart,
@@ -207,14 +208,45 @@ export default function MainPage() {
                 ? morningDateStr
                 : todayStr;
 
-        // overtime / 強制再生成以外は保存済みを優先
-        if (tab !== "overtime" && !forceRefresh) {
+        // overtime / 週次 / 強制再生成以外は保存済みを優先。
+        // 週次は保存済みでも休日のタスク一覧を「休み」だけに直してから出す。
+        if (tab !== "overtime" && tab !== "weekly" && !forceRefresh) {
           const saved = await fetch(
             `/api/reports?type=${tab}&date=${reportDate}`
           ).then((r) => r.json());
 
           if (saved?.content) {
             setContents((prev) => ({ ...prev, [tab]: saved.content }));
+            return;
+          }
+        }
+
+        if (tab === "weekly" && !forceRefresh) {
+          const saved = await fetch(
+            `/api/reports?type=${tab}&date=${reportDate}`
+          ).then((r) => r.json());
+
+          if (saved?.content) {
+            setCalendarLoading(true);
+            let calendar: WeeklyCalendar = EMPTY_CALENDAR;
+            try {
+              const calRes = await fetch(
+                `/api/calendar?week_start=${weekStartStr}`
+              );
+              if (calRes.ok) calendar = await calRes.json();
+            } catch {
+              // 取得失敗時は保存済みのまま
+            } finally {
+              setCalendarLoading(false);
+            }
+
+            const updated = stripTasksOnLeaveDays(
+              saved.content,
+              weekStart,
+              calendar
+            );
+            setContents((prev) => ({ ...prev, weekly: updated }));
+            if (updated !== saved.content) await saveReport("weekly", updated);
             return;
           }
         }

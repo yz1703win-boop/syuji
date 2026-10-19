@@ -360,6 +360,48 @@ export function buildWeeklyVars(
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 保存済み週次文面のうち、休日のタスク目標を「休み」だけにする。
+ * 開いたときに前回保存分が残っていても、休日の予定一覧は出さない。
+ */
+export function stripTasksOnLeaveDays(
+  content: string,
+  weekStart: Date,
+  calendar: WeeklyCalendar
+): string {
+  const days = getWeekDays(weekStart);
+  const keys: DayKey[] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+  ];
+  let next = content;
+  let leaveWeekday = false;
+
+  for (let i = 0; i < keys.length; i++) {
+    if (!calendar.holidays[keys[i]]) continue;
+    leaveWeekday = true;
+    const label = escapeRegExp(formatShortDate(days[i]));
+    const re = new RegExp(`(〇${label}\\n)([\\s\\S]*?)(?=\\n〇|\\n▼|$)`);
+    next = next.replace(re, "$1休み\n");
+  }
+
+  if (!leaveWeekday) return next;
+
+  const summary = buildTaskTimeSummary(calendar);
+  const weekRange = buildWeekRange(weekStart, calendar);
+  return next.replace(
+    /▼[^\n]*タスク別所要時間\n[\s\S]*?(?=\n５）|\n5）|$)/,
+    `▼${weekRange}タスク別所要時間\n${summary}\n`
+  );
+}
+
 export function extractPrevWeekSections(content?: string): {
   prev_action_change: string;
   prev_week_tasks: string;

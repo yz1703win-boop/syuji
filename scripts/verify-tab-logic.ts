@@ -27,6 +27,7 @@ import {
   isHolidayWorkTitle,
   selectOvertimeEvents,
   shouldIncludeOvertimeEvent,
+  stripTasksOnLeaveDays,
   toDateString,
 } from "../src/lib/template";
 import type { CalendarEvent, WeeklyCalendar } from "../src/types";
@@ -427,6 +428,58 @@ function check(name: string, ok: boolean, detail?: string) {
   check(
     "weekly: 休み期間のタスクは所要時間に入れない",
     !summary.includes("打ち合わせ") && !summary.includes("資料作成")
+  );
+
+  const saved = `〇10/20(火)
+・ウィンテレ第3弾編集（60）
+
+〇10/21(水)
+休み
+・移動（30）
+・事業記事作成①（60）
+
+〇10/22(木)
+・読書（30）
+
+▼10/19(月)～10/23(金)タスク別所要時間
+＝＝＝
+・移動(30)
+・事業記事作成①(60)
+
+５）目標達成のためにほしい権限
+`;
+  const oct19 = new Date(2026, 9, 19);
+  const stripped = stripTasksOnLeaveDays(saved, oct19, {
+    monday: [],
+    tuesday: [
+      ev("ウィンテレ第3弾編集", jstIso("2026-10-20", 10, 0), jstIso("2026-10-20", 11, 0)),
+    ],
+    wednesday: [wedTask],
+    thursday: [
+      ev("読書", jstIso("2026-10-22", 10, 0), jstIso("2026-10-22", 10, 30)),
+    ],
+    friday: [],
+    saturday: [],
+    sunday: [],
+    holidays: {
+      monday: false,
+      tuesday: false,
+      wednesday: true,
+      thursday: false,
+      friday: false,
+      saturday: true,
+      sunday: true,
+    },
+  });
+  check(
+    "weekly: 保存済みの休みの日はタスク行を消す",
+    stripped.includes("〇10/21(水)\n休み\n") &&
+      !stripped.includes("〇10/21(水)\n休み\n・移動") &&
+      stripped.includes("〇10/20(火)\n・ウィンテレ第3弾編集（60）") &&
+      stripped.includes("〇10/22(木)\n・読書（30）") &&
+      stripped.includes("５）目標達成のためにほしい権限") &&
+      !stripped.includes("・移動(30)") &&
+      stripped.includes("・ウィンテレ第3弾編集(60)")
   );
 }
 
